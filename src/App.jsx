@@ -12270,7 +12270,6 @@ function _pushUnique(arr, val) {
                 teeName: (tee?.teeName || tee?.name || tee?.label || "").toString(),
                 teeGender: (tee?.gender || p?.gender || "M").toString(),
                 teeLabel: (p?.teeLabel || p?.tee || p?.tee_name || "").toString(),
-                teeSlope: _safeNum(
                 teeSlope: _safeNum(tee?.slope ?? tee?.Slope ?? tee?.slopeRating ?? parsed?.courseSlope ?? parsed?.slope ?? NaN,NaN),
                 teeRating: _safeNum(tee?.rating ?? tee?.courseRating ?? parsed?.courseRating ?? parsed?.rating ?? NaN, NaN),
                 slope: _safeNum(tee?.slope ?? tee?.slopeRating ?? parsed?.courseSlope ?? parsed?.slope ?? NaN, NaN),
