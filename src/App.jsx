@@ -2447,7 +2447,7 @@ function Header({ eventName, statusMsg, courseName, view, setView }) {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg md:text-xl font-extrabold tracking-tight text-squab-900 truncate">
-              Society Golf
+              Den Society League — Ultimate Edition
             </h1>
             <div className="text-[11px] text-neutral-500 truncate">
               {eventName || "Untitled Event"}
@@ -2507,7 +2507,7 @@ function SoloNav({ setView, left = null, title = null, right = null }) {
 
 
 function SeasonPicker({ seasonsDef, seasonYear, setSeasonYear }) {
-  // Build nice labels, especially for Society Golf seasons that span two calendar years.
+  // Build nice labels, especially for Den Society seasons that span two calendar years.
   const labelFor = (s) => {
     const raw = String((s && s.label) ? s.label : "").trim();
     const id = String(s?.season_id ?? "").trim();
@@ -2525,6 +2525,11 @@ function SeasonPicker({ seasonsDef, seasonYear, setSeasonYear }) {
       else if (y1) base = y1;
       else base = id || "";
     }
+
+    // Brand it as Den Society League unless it already includes it
+    const baseLower = base.toLowerCase();
+    if (!baseLower.includes('Den Society')) base = `Den Society League ${base}`.trim();
+
     return base || id || "";
   };
 
@@ -9564,7 +9569,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Society Golf — Golfer’s Guide</title>
+  <title>Den Society League — Golfer’s Guide</title>
 
   <style>
     :root{
@@ -9934,7 +9939,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 <!-- iPhone: run as a standalone (full-screen) web app when launched from Home Screen -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Society Golf">
+<meta name="apple-mobile-web-app-title" content="Den Society League">
 
 <!-- PWA manifest + app icons -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -9954,7 +9959,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
           </svg>
         </div>
         <div style="min-width:0">
-          <h1>Society Golf — Golfer’s Guide</h1>
+          <h1>Den Society League — Golfer’s Guide</h1>
           <p>What it does • How to use it • How it actually drops your scores</p>
         </div>
       </div>
@@ -10563,7 +10568,7 @@ function GuideModePicker({ guideMode, setGuideMode }) {
 function GuideView({ setView }) {
   const [guideMode, setGuideMode] = React.useState(() => {
     try {
-      return localStorage.getItem("denGuideMode") || "simple";
+      return localStorage.getItem(`${LEAGUE_SLUG}_guideMode_v1`) || "simple";
     } catch (e) {
       return "simple";
     }
@@ -10571,7 +10576,7 @@ function GuideView({ setView }) {
 
   React.useEffect(() => {
     try {
-      localStorage.setItem("denGuideMode", guideMode);
+      localStorage.setItem(`${LEAGUE_SLUG}_guideMode_v1`, guideMode);
     } catch (e) {}
   }, [guideMode]);
 
@@ -10583,7 +10588,7 @@ function GuideView({ setView }) {
       <GuideModePicker guideMode={guideMode} setGuideMode={setGuideMode} />
 <div className="rounded-2xl border border-squab-200 bg-white shadow-sm overflow-hidden">
           <iframe
-            title="Society Golf — In-depth guide"
+            title="Den Society League — In-depth guide"
             className="w-full"
             style={{ height: "78vh" }}
             srcDoc={DEEP_GUIDE_HTML}
@@ -11737,38 +11742,69 @@ const [user, setUser] = useState(null);
         const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
         const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-        // Supabase config (Society Golf)
-function getRouteSlug() {
-  const h = (window.location.hash || "").replace(/^#\/?/, "");
-  if (h) return h.split("/")[0] || "den-society";
-  const parts = window.location.pathname.split("/").filter(Boolean);
-  // GitHub Pages base path: /den-society-vite/<slug>
-  return parts[1] || parts[0] || "den-society";
-}
-const ROUTE_SLUG = getRouteSlug();
+        // Supabase config (single app; league picked by URL)
+// We route leagues by URL:
+//   https://.../#/den-society
+//   https://.../#/winter-league
+const getLeagueSlug = () => {
+  try {
+    const hash = (typeof window !== "undefined" && window.location ? (window.location.hash || "") : "");
+    const h = String(hash).replace(/^#\/?/, "").trim();
+    if (h) return h.split("/")[0];
 
-// Buckets (current setup: separate buckets per league)
-const BUCKET = ROUTE_SLUG === "winter-league" ? "winter_league" : "den-events";
+    const path = (typeof window !== "undefined" && window.location ? (window.location.pathname || "") : "");
+    const parts = String(path).split("/").filter(Boolean);
+    // GitHub Pages: /den-society-vite/<slug>
+    return parts[1] || parts[0] || "den-society";
+  } catch {
+    return "den-society";
+  }
+};
 
+const LEAGUE_SLUG = (typeof window !== "undefined") ? getLeagueSlug() : "den-society";
+
+const LEAGUE_CFG =
+  LEAGUE_SLUG === "winter-league"
+    ? { bucket: "winter_league", competition: "winter", title: "Winter League", prefix: "events" }
+    : { bucket: "den-events", competition: "season", title: "Den Society League", prefix: "events" };
+
+const BUCKET = LEAGUE_CFG.bucket;
 const STANDINGS_TABLE = "standings";
-
-// Default competition per league route (still overrideable in code later if needed)
-const COMPETITION = ROUTE_SLUG === "winter-league" ? "winter" : "season";
-
-// Storage prefix inside the bucket (empty = bucket root)
-const PREFIX = "";
+const COMPETITION = LEAGUE_CFG.competition;
+const PREFIX = LEAGUE_CFG.prefix;
 
 // Admin player visibility (hide / re-include players)
-const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
+const ADMIN_PW_OK_LS_KEY = `${LEAGUE_SLUG}_admin_pw_ok_v1`;
 const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWORD)
   ? String(window.DEN_ADMIN_PASSWORD)
-  : "Society Golf";
-const VIS_LS_KEY = "den_hidden_players_v1";   // changed (optional but recommended)
-const ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : `admin/player_visibility.json`;
+  : LEAGUE_CFG.title;
+const VIS_LS_KEY = `${LEAGUE_SLUG}_hidden_players_v1`;
+const ADMIN_VIS_PATH = `${PREFIX}/admin/player_visibility.json`;
 
 
 
         const [client, setClient] = useState(null);
+        // Small in-memory cache for downloaded CSVs (per session)
+        const csvCacheRef = useRef(new Map());
+
+        const getCsvTextCached = async (bucket, path) => {
+          const key = `${bucket}:${path}`;
+          const cached = csvCacheRef.current.get(key);
+          if (typeof cached === "string") return cached;
+
+          const r = await client.storage.from(bucket).download(path);
+          if (r.error) throw new Error(r.error.message || "Download failed");
+          const text = await r.data.text();
+
+          // Tiny cache cap (avoid runaway memory if lots of files)
+          if (csvCacheRef.current.size > 50) {
+            const firstKey = csvCacheRef.current.keys().next().value;
+            csvCacheRef.current.delete(firstKey);
+          }
+          csvCacheRef.current.set(key, text);
+          return text;
+        };
+
         const [statusMsg, setStatusMsg] = useState("Connecting…");
         const [sharedGroups, setSharedGroups] = useState([]);
         
@@ -11784,10 +11820,10 @@ const [qaLaunch, setQaLaunch] = React.useState(false);
 
 // Player Progress / Player Report / Q&A: independent "Next Handicap Preview" mode (UI only)
 const [reportNextHcapMode, setReportNextHcapMode] = React.useState(() => {
-  try { return localStorage.getItem("den_reportNextHcapMode_v1") || "whs"; } catch(e){ return "whs"; }
+  try { return localStorage.getItem(`${LEAGUE_SLUG}_reportNextHcapMode_v1`) || "whs"; } catch(e){ return "whs"; }
 });
 React.useEffect(() => {
-  try { localStorage.setItem("den_reportNextHcapMode_v1", reportNextHcapMode); } catch(e){}
+  try { localStorage.setItem(`${LEAGUE_SLUG}_reportNextHcapMode_v1`, reportNextHcapMode); } catch(e){}
 }, [reportNextHcapMode]);
 // "All" or number as string (e.g. "5")
 
@@ -12883,7 +12919,7 @@ setSeasonRounds(rounds);
         const [courseList, setCourseList] = useState([]);
         const [players, setPlayers] = useState([]);
         const [season, setSeason] = useState({});
-        const [eventName, setEventName] = useState("Society Golf");
+        const [eventName, setEventName] = useState("Den Society League");
         const [courseTees, setCourseTees] = useState([]);
         const [courseName, setCourseName] = useState("");
         const [currentFile, setCurrentFile] = useState(null);
@@ -13234,70 +13270,52 @@ async function fetchSeasons(c) {
 
 async function refreshShared(c) {
           c = c || client; if (!c) return;
+
+          // One storage list call. We DO NOT download CSVs here (downloads only happen when user selects an event).
           const r = await c.storage.from(BUCKET).list(PREFIX, { limit: 1000, sortBy: { column: "name", order: "asc" } });
           if (r.error) { toast("Storage error: " + r.error.message); return; }
 
-          // Build file list
           const files = (r.data || [])
-            .filter((x) => x?.name && !x.name.startsWith(".") && /\.csv$/i.test(x.name))
-            .map((x) => ({ 
-              name: x.name.replace(/\.csv$/i, ""), 
-              file: x.name, 
-              path: `${PREFIX}/${x.name}`,
-              dateMs: null
-            }));
-
-          // IMPORTANT: Dates live inside the CSV content (e.g. "Game 1,Nov 12 2025").
-          // So we cheaply download each file and extract a date from the header section.
-          // (If you ever want to optimise, we can do a server-side manifest table instead.)
-          for (const f of files) {
-            try {
-              const dl = await c.storage.from(BUCKET).download(f.path);
-              if (dl.error) continue;
-              const text = await dl.data.text();
-
-              // Date: extracted from in-CSV header or filename
-              f.dateMs = _extractDateMsFromCsvText(text) || _extractDateMsFromPath(f.file) || null;
-
-              // Season mapping (date-range based; uses public.seasons ranges for this competition)
-              f.seasonId = f.dateMs ? (seasonIdForDateMs(f.dateMs, seasonsDef) || null) : null;
-
-              // Course: the CSV already contains it — parse just once here so the picker can show a nice name.
-              try {
-                const parsed = parseSquabbitCSV(text);
-                f.courseName = parsed?.courseName || parsed?.internalCourseName || "";
-                // Optional: if your parser exposes format, surface it too (safe fallback).
-                f.format = parsed?.format || parsed?.gameFormat || parsed?.formatName || "";
-              } catch (e) {
-                // Ignore parsing failures here — the actual load step still validates.
-                f.courseName = f.courseName || "";
-                f.format = f.format || "";
-              }
-            } catch (e) { /* ignore */ }
-          }
+            .filter((x) => x?.name && !String(x.name).startsWith(".") && String(x.name).toLowerCase().endsWith(".csv"))
+            .map((x) => {
+              const name = String(x.name);
+              const path = PREFIX ? `${PREFIX}/${name}` : name;
+              const dateMs = _extractDateMsFromPath(path) || null;
+              return {
+                name,
+                path,
+                // Metadata filled lazily on selection
+                dateMs,
+                courseName: "",
+                format: "",
+              };
+            });
 
           setSharedGroups(groupEventsByYear(files));
         }
         async function loadShared(item) {
           if (!client) { alert("Supabase client not ready"); return; }
-          const r = await client.storage.from(BUCKET).download(item.path);
-          if (r.error) { alert("Download failed: " + r.error.message); return; }
-          const text = await r.data.text();
-          let parsed;
-          try { parsed = parseSquabbitCSV(text); } catch (err) { alert(err?.message || "Failed to parse CSV."); return; }
-          setPlayers(parsed.players || []);
-          setSelectedPlayer(parsed.players[0]?.name || "");
-          setEventName(item.name);
-          setCurrentFile(null);
-          
-          const dbCourseFound = await autoDetectAndLoadCourse(parsed.courseName || item.file);
-          if (!dbCourseFound) {
-             setCourseTees(parsed.courseTees || []);
-             setCourseName(parsed.courseName || "");
+          try {
+            const text = await getCsvTextCached(BUCKET, item.path);
+            let parsed;
+            try { parsed = parseSquabbitCSV(text); } catch (err) { alert(err?.message || "Failed to parse CSV."); return; }
+
+            setPlayers(parsed.players || []);
+            setSelectedPlayer(parsed.players[0]?.name || "");
+            setEventName(item.name);
+            setCurrentFile(null);
+
+            const dbCourseFound = await autoDetectAndLoadCourse(parsed.courseName || item.file);
+            if (!dbCourseFound) {
+              setCourseTees(parsed.courseTees || []);
+              setCourseName(parsed.courseName || "");
+            }
+
+            setView("event");
+            toast("Event loaded");
+          } catch (e) {
+            alert("Download failed: " + (e?.message || String(e)));
           }
-          
-          setView("event");
-          toast("Event loaded");
         }
 
 
