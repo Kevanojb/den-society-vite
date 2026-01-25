@@ -17,44 +17,6 @@ if (typeof window !== "undefined") {
   window.supabase.createClient = window.supabase.createClient || createClient;
 }
 
-
-// =========================
-// League selection via URL (single website, multiple societies)
-// Primary routing on GitHub Pages uses hash routes (/#/winter-league).
-// We therefore read from window.location.hash first, then fall back to pathname.
-// =========================
-function _getLeagueSlugFromUrl() {
-  try {
-    if (typeof window === "undefined") return "den-society";
-
-    // 1) Hash routes (recommended for GitHub Pages): /#/winter-league
-    const rawHash = String(window.location.hash || "");
-    const hash = rawHash.replace(/^#\/?/, "").trim(); // strip leading "#/" or "#"
-    if (hash) {
-      const seg = hash.split("/").filter(Boolean)[0];
-      if (seg) return seg;
-    }
-
-    // 2) Path routes: /den-society-vite/winter-league OR /winter-league
-    const baseSeg =
-      (import.meta?.env?.BASE_URL || "/").split("/").filter(Boolean)[0] || "";
-    const parts = String(window.location.pathname || "")
-      .split("/")
-      .filter(Boolean);
-
-    const p0 = parts[0] || "";
-    const p1 = parts[1] || "";
-    if (baseSeg && p0 === baseSeg) return p1 || "den-society";
-    return p0 || "den-society";
-  } catch {
-    return "den-society";
-  }
-}
-
-const APP_LEAGUE_SLUG = _getLeagueSlugFromUrl();
-const APP_LEAGUE_NAME = APP_LEAGUE_SLUG === "winter-league" ? "Winter League" : "Den Society";
-const APP_DEFAULT_COMPETITION = APP_LEAGUE_SLUG === "winter-league" ? "winter" : "season";
-
 // Used for per-hole accumulators (defaults to 18 holes of zeros)
 var makeBlank = function (n, fill) {
   if (n === undefined || n === null) n = 18;
@@ -2485,7 +2447,7 @@ function Header({ eventName, statusMsg, courseName, view, setView }) {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg md:text-xl font-extrabold tracking-tight text-squab-900 truncate">
-              {APP_LEAGUE_NAME} — Ultimate Edition
+              Den Society League — Ultimate Edition
             </h1>
             <div className="text-[11px] text-neutral-500 truncate">
               {eventName || "Untitled Event"}
@@ -9607,7 +9569,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>${APP_LEAGUE_NAME} — Golfer’s Guide</title>
+  <title>Den Society League — Golfer’s Guide</title>
 
   <style>
     :root{
@@ -9977,7 +9939,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 <!-- iPhone: run as a standalone (full-screen) web app when launched from Home Screen -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="${APP_LEAGUE_NAME}">
+<meta name="apple-mobile-web-app-title" content="Den Society League">
 
 <!-- PWA manifest + app icons -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -9997,7 +9959,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
           </svg>
         </div>
         <div style="min-width:0">
-          <h1>${APP_LEAGUE_NAME} — Golfer’s Guide</h1>
+          <h1>Den Society League — Golfer’s Guide</h1>
           <p>What it does • How to use it • How it actually drops your scores</p>
         </div>
       </div>
@@ -10626,7 +10588,7 @@ function GuideView({ setView }) {
       <GuideModePicker guideMode={guideMode} setGuideMode={setGuideMode} />
 <div className="rounded-2xl border border-squab-200 bg-white shadow-sm overflow-hidden">
           <iframe
-            title="${APP_LEAGUE_NAME} — In-depth guide"
+            title="Den Society League — In-depth guide"
             className="w-full"
             style={{ height: "78vh" }}
             srcDoc={DEEP_GUIDE_HTML}
@@ -11781,17 +11743,42 @@ const [user, setUser] = useState(null);
         const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
         // Supabase config (single app; league picked by URL)
-const BUCKET = "den-events";
+// We route leagues by URL:
+//   https://.../#/den-society
+//   https://.../#/winter-league
+const getLeagueSlug = () => {
+  try {
+    const hash = (typeof window !== "undefined" && window.location ? (window.location.hash || "") : "");
+    const h = String(hash).replace(/^#\/?/, "").trim();
+    if (h) return h.split("/")[0];
+
+    const path = (typeof window !== "undefined" && window.location ? (window.location.pathname || "") : "");
+    const parts = String(path).split("/").filter(Boolean);
+    // GitHub Pages: /den-society-vite/<slug>
+    return parts[1] || parts[0] || "den-society";
+  } catch {
+    return "den-society";
+  }
+};
+
+const LEAGUE_SLUG = (typeof window !== "undefined") ? getLeagueSlug() : "den-society";
+
+const LEAGUE_CFG =
+  LEAGUE_SLUG === "winter-league"
+    ? { bucket: "winter_league", competition: "winter", title: "Winter League", prefix: "events" }
+    : { bucket: "den-events", competition: "season", title: "Den Society League", prefix: "events" };
+
+const BUCKET = LEAGUE_CFG.bucket;
 const STANDINGS_TABLE = "standings";
-const COMPETITION = APP_DEFAULT_COMPETITION;
-const PREFIX = "events";
+const COMPETITION = LEAGUE_CFG.competition;
+const PREFIX = LEAGUE_CFG.prefix;
 
 // Admin player visibility (hide / re-include players)
-const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
+const ADMIN_PW_OK_LS_KEY = `${LEAGUE_SLUG}_admin_pw_ok_v1`;
 const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWORD)
   ? String(window.DEN_ADMIN_PASSWORD)
-  : APP_LEAGUE_NAME;
-const VIS_LS_KEY = "den_hidden_players_v1";   // changed (optional but recommended)
+  : LEAGUE_CFG.title;
+const VIS_LS_KEY = `${LEAGUE_SLUG}_hidden_players_v1`;
 const ADMIN_VIS_PATH = `${PREFIX}/admin/player_visibility.json`;
 
 
@@ -12911,7 +12898,7 @@ setSeasonRounds(rounds);
         const [courseList, setCourseList] = useState([]);
         const [players, setPlayers] = useState([]);
         const [season, setSeason] = useState({});
-        const [eventName, setEventName] = useState(APP_LEAGUE_NAME);
+        const [eventName, setEventName] = useState("Den Society League");
         const [courseTees, setCourseTees] = useState([]);
         const [courseName, setCourseName] = useState("");
         const [currentFile, setCurrentFile] = useState(null);
