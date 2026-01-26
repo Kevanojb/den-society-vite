@@ -3491,10 +3491,18 @@ const winnerOdds = useMemo(() => {
   };
   const normKey = (s) => String(s || "").toLowerCase().trim();
   const inferGenderFromTee = (teeLabel) => {
-    const t = normKey(teeLabel);
-    if (!t) return null;
-    if (t.includes("women") || t.includes("ladies") || t.includes("lady") || t.includes("red")) return "F";
-    if (t.includes("men") || t.includes("gents") || t.includes("gent") || t.includes("white") || t.includes("yellow") || t.includes("blue")) return "M";
+    const t = String(teeLabel || "").toLowerCase();
+    // Prefer explicit words / structured labels over colour.
+    if (t.includes("women") || t.includes("ladies") || t.includes("lady") || t.includes("womens")) return "F";
+    if (t.includes("men") || t.includes("gents") || t.includes("mens")) return "M";
+
+    // Common structured labels like "55 women's tee" / "61 men's tee"
+    if (/\b\d+\s*w(omen)?\b/.test(t)) return "F";
+    if (/\b\d+\s*m(en)?\b/.test(t)) return "M";
+
+    // Colour is ambiguous across courses; only "red" is reliably ladies in most UK cards.
+    if (t.includes("red")) return "F";
+
     return null;
   };
   const normalSample = (mu, sigma) => {
@@ -3749,25 +3757,133 @@ const winnerOdds = useMemo(() => {
     playerModels.push({ k, name: displayName, mu, sigma, groupKey });
   }
 
-  // ---------- deterministic-ish Monte Carlo winner odds ----------
-  const sims = 8000;
-  const winCounts = new Map();
-  playerModels.forEach(p => winCounts.set(p.k, 0));
+  // ---------- deterministic-ish Monte Carlo winner odds (scorecard-driven) ----------
+    // NOTE: We build "history" ONLY from scorecard-derived rounds (seasonPlayerRows),
+    // not from the course/tees database.
+    // We also (optionally) adjust expected net points by projected Next HI change.
 
-  for (let s=0; s<sims; s++) {
-    let bestK = null;
-    let bestScore = -1e9;
-    for (const p of playerModels) {
-      // sample and clamp to plausible Stableford range
-      let score = normalSample(p.mu, p.sigma);
-      score = Math.max(0, Math.min(60, score));
-      if (score > bestScore) { bestScore = score; bestK = p.k; }
+    // who won *this* round (for DEN next HI calc)
+    const isWinnerByKey = new Map();
+    if (Array.isArray(currentRows) && currentRows.length) {
+      const bestPts = Math.max(
+        ...currentRows.map((r) => (Number.isFinite(+r?.pts) ? +r.pts : -Infinity))
+      );
+      currentRows.forEach((r) => {
+        const k = normalizeKey(r?.name);
+        if (!k) return;
+        if (+r?.pts === bestPts) isWinnerByKey.set(k, true);
+      });
     }
-    if (bestK) winCounts.set(bestK, (winCounts.get(bestK) || 0) + 1);
-  }
 
-  let odds = playerModels
-    .map(p => ({ ...p, winProb: (winCounts.get(p.k) || 0) / sims }))
+    // convert history into simple gaussian models per player
+    const playerModels = [];
+    for (const [k, hist] of byPlayer.entries()) {
+      if (!hist?.length) continue;
+
+      // last n rounds (latest first already)
+      const n = Math.min(hist.length, Math.max(1, Math.floor(oddsRoundsLimit)));
+      const slice = hist.slice(0, n);
+
+      const ptsArr = slice.map((h) => +h.pts).filter((v) => Number.isFinite(v));
+      if (!ptsArr.length) continue;
+
+      const muPts = mean(ptsArr);
+      const sdPts = stddev(ptsArr) || 1.0;
+
+      // simple "difficulty" + "course variance" modifiers
+      const toughArr = slice.map((h) => +h.toughPts).filter((v) => Number.isFinite(v));
+      const consArr = slice.map((h) => +h.consBetter).filter((v) => Number.isFinite(v));
+
+      const toughBonus = toughArr.length ? mean(toughArr) * 0.15 : 0;
+      const consPenalty = consArr.length ? mean(consArr) * 0.75 : 0;
+
+      // base expected points (net stableford) from scorecards
+      let expectedPts = muPts + toughBonus - consPenalty;
+
+      // project next HI (only if we have enough data)
+      const cur = byKeyCurrent.get(k);
+      const startExact = Number.isFinite(+cur?.startExact)
+        ? +cur.startExact
+        : Number.isFinite(+cur?.exact)
+          ? +cur.exact
+          : Number.isFinite(+cur?.hi)
+            ? +cur.hi
+            : null;
+
+      const gender = cur?.gender || slice.find((h) => h.gender)?.gender || null;
+
+      let nextHi = startExact;
+      if (nextHcapMode !== "off" && Number.isFinite(startExact)) {
+        const isWinner = !!isWinnerByKey.get(k);
+        if (nextHcapMode === "den") {
+          // uses today's points/back9 to project HI change
+          const ptsToday = Number.isFinite(+cur?.pts) ? +cur.pts : null;
+          const back9Today = Number.isFinite(+cur?.back9) ? +cur.back9 : null;
+          if (Number.isFinite(ptsToday)) {
+            nextHi = computeNewExactHandicap(startExact, gender || "M", ptsToday, back9Today, isWinner);
+          }
+        } else if (nextHcapMode === "whs") {
+          // We can only do a *light* WHS-ish projection without full CR/Slope + hole-by-hole.
+          // Fallback to DEN projection if we at least have points for today.
+          const ptsToday = Number.isFinite(+cur?.pts) ? +cur.pts : null;
+          const back9Today = Number.isFinite(+cur?.back9) ? +cur.back9 : null;
+          if (Number.isFinite(ptsToday)) {
+            nextHi = computeNewExactHandicap(startExact, gender || "M", ptsToday, back9Today, isWinner);
+          }
+        }
+      }
+
+      // handicap change affects net points expectation (roughly 1 HI ~ 1 stroke ~ 1 stableford point)
+      if (nextHcapMode !== "off" && Number.isFinite(startExact) && Number.isFinite(nextHi)) {
+        const delta = nextHi - startExact; // +ve => more strokes => expected net points go up
+        expectedPts += delta;
+      }
+
+      // volatility: blend within-player sd with "consistency" signal
+      const sigma = clamp(sdPts * (0.9 + Math.abs(consPenalty) * 0.15), 0.75, 7.5);
+
+      playerModels.push({
+        k,
+        name: slice[0]?.name || (cur?.name ?? k),
+        mu: expectedPts,
+        sigma,
+        rounds: slice.length,
+        volatility: sigma,
+        nextHi: Number.isFinite(nextHi) ? nextHi : null,
+        groupKey: slice[0]?.groupKey || cur?.groupKey || "all",
+      });
+    }
+
+    // deterministic RNG for repeatability per event key
+    const rng = mulberry32(hash32(seedKey + "|" + String(simCount)));
+
+    const winCounts = new Map();
+    const top3Counts = new Map();
+    const top4Counts = new Map();
+
+    for (let i = 0; i < simCount; i++) {
+      const sims = playerModels.map((p) => ({
+        k: p.k,
+        pts: p.mu + p.sigma * randn(rng),
+      }));
+      sims.sort((a, b) => b.pts - a.pts);
+
+      if (sims[0]) winCounts.set(sims[0].k, (winCounts.get(sims[0].k) || 0) + 1);
+      for (let j = 0; j < sims.length; j++) {
+        const k = sims[j].k;
+        if (j < 3) top3Counts.set(k, (top3Counts.get(k) || 0) + 1);
+        if (j < 4) top4Counts.set(k, (top4Counts.get(k) || 0) + 1);
+      }
+    }
+
+
+    let odds = playerModels
+    .map(p => ({
+      ...p,
+      winProb: (winCounts.get(p.k) || 0) / simCount,
+      top3Pct: ((top3Counts.get(p.k) || 0) / simCount) * 100,
+      top4Pct: ((top4Counts.get(p.k) || 0) / simCount) * 100,
+    }))
     .sort((a,b)=>b.winProb-a.winProb);
 
   // If anything went sideways (data not ready yet), fall back to current leaderboard so UI never goes blank
@@ -3800,8 +3916,8 @@ const winnerOdds = useMemo(() => {
   // Debug for you
   try {
     if (typeof window !== "undefined") {
-      window.__ODDS_DEBUG.groups = Array.from(new Set(seasonPlayerRows.map(r => r.groupKey))).sort();
-      window.__ODDS_DEBUG.sample = seasonPlayerRows.slice(-50); // last 50 rows for inspection
+      ((window.__ODDS_DEBUG = window.__ODDS_DEBUG || {})).groups = Array.from(new Set(seasonPlayerRows.map(r => r.groupKey))).sort();
+      ((window.__ODDS_DEBUG = window.__ODDS_DEBUG || {})).sample = seasonPlayerRows.slice(-50); // last 50 rows for inspection
       window.__ODDS_DEBUG.ts = Date.now();
     }
   } catch {}
