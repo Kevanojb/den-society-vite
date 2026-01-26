@@ -2009,7 +2009,7 @@ function readStablefordPerHole(row) {
             players.push({
               name,
               handicap: hcap,
-              gender: g || "M",
+              gender: g || "",
               teeLabel: tee || ""
             });
           }
@@ -2040,7 +2040,7 @@ function readStablefordPerHole(row) {
             if (!cell) continue;
             if (looksLikeTeeLabel(cell) && !teeLabelMap[nm]) teeLabelMap[nm] = cell;
             const cellLower = cell.toLowerCase();
-            if (/women|ladies/.test(cellLower)) genderMap[nm] = "F";
+            if (/women|ladies|red/.test(cellLower)) genderMap[nm] = "F";
           }
           if (genderMap[nm] == null) genderMap[nm] = "M";
         }
@@ -12521,7 +12521,7 @@ function _pushUnique(arr, val) {
                 parsPerHole: Array.isArray(tee?.pars) ? tee.pars.slice(0,18) : Array.isArray(tee?.par) ? tee.par.slice(0,18) : [],
                 siPerHole: Array.isArray(tee?.si) ? tee.si.slice(0,18) : Array.isArray(tee?.SI) ? tee.SI.slice(0,18) : [],
                 startExact: _safeNum(p.handicap ?? p.startExact ?? p.handicapIndex ?? p.hcap ?? p.hi ?? NaN, NaN),
-                gender: (p?.gender ?? "").toString(),
+                gender: (p?.gender || tee?.gender || "M").toString(),
                 perHole: _perHoleArr.slice(0, 18),
                 parsArr: pars.slice(0, 18),
                 siArr: siArr.slice(0, 18),
