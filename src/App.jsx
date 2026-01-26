@@ -3494,7 +3494,7 @@ seasonArr.forEach(sr => {
     const teeLabel = String(pp?.teeLabel ?? pp?.tee ?? pp?.tee_name ?? pp?.teeName ?? "").toLowerCase().trim();
     const genderRaw = String(pp?.gender ?? pp?.sex ?? "").toUpperCase();
     const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
-    const groupKey = teeLabel || gender;
+    const groupKey = p.teeLabel || "all";
     groupSums.set(groupKey, (groupSums.get(groupKey) || 0) + gPts);
     groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
   }
@@ -3521,7 +3521,7 @@ seasonArr.forEach(sr => {
     const teeLabel = String(p?.teeLabel ?? p?.tee ?? p?.tee_name ?? p?.teeName ?? "").toLowerCase().trim();
     const genderRaw = String(p?.gender ?? p?.sex ?? "").toUpperCase();
     const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
-    const groupKey = teeLabel || gender;
+    const groupKey = p.teeLabel || "all";
     const groupAvg = groupAvgByKey.get(groupKey) ?? roundAvg;
 
     seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs, roundAvg, gender, teeLabel, groupKey, groupAvg });
