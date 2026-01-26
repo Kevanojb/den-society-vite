@@ -3097,7 +3097,38 @@ function PastEvents({ sharedGroups, loadShared, setView }) {
 
   // Course photo overrides (you can expand this later by pulling URLs from Supabase)
   // Course photo URLs fetched from Supabase (keeps this HTML file small).
-  const photoCacheRef = React.useRef(new Map()); // slug -> [urls]
+  const photoCacheRef = React.useRef(new Map());
+
+  const [photoReady, setPhotoReady] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadAllPhotos() {
+      const slugs = new Set();
+
+      sharedGroups.forEach(group => {
+        group.events.forEach(item => {
+          const course = (item.courseName || item.name || "").replace(/\.csv$/i, "");
+          const slug = _normSlugFromCourseName(course);
+          if (slug) slugs.add(slug);
+        });
+      });
+
+      for (const slug of slugs) {
+        if (!photoCacheRef.current.has(slug)) {
+          await _getPhotoUrlsForSlug(slug);
+        }
+      }
+
+      if (!cancelled) setPhotoReady(true);
+    }
+
+    loadAllPhotos();
+    return () => { cancelled = true; };
+  }, [sharedGroups]);
+
+ // slug -> [urls]
   const inflightRef = React.useRef(new Map());   // slug -> Promise
 
   function _normSlugFromCourseName(raw) {
