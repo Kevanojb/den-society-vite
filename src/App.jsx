@@ -3390,22 +3390,24 @@ seasonArr.forEach(sr => {
     .filter(n => Number.isFinite(n));
   const roundAvg = ptsList.length ? (ptsList.reduce((a,b)=>a+b,0) / ptsList.length) : 36;
 
-  // --- NEW: per-tee / gender group averages (matches scorecard logic) ---
-  // Group key preference: teeLabel (if present) else gender (M/F).
-  const _groupPts = Object.create(null);
-  players.forEach(p => {
-    const pts = Number(p?.pts ?? p?.points ?? p?.stableford ?? p?.sf ?? p?.totalPoints ?? p?.netPoints);
-    if (!Number.isFinite(pts)) return;
-    const teeLabel = String(p?.teeLabel || "").toLowerCase().trim();
-    const gender = String(p?.gender || "M").toUpperCase();
-    const gk = teeLabel || gender;
-    (_groupPts[gk] = _groupPts[gk] || []).push(pts);
-  });
-  const _groupAvg = Object.create(null);
-  Object.keys(_groupPts).forEach(gk => {
-    const arr = _groupPts[gk];
-    _groupAvg[gk] = arr.length ? (arr.reduce((a,b)=>a+b,0) / arr.length) : roundAvg;
-  });
+  // Build group averages for this round (teeLabel preferred, else gender)
+  const groupSums = new Map();
+  const groupCounts = new Map();
+  for (const pp of players) {
+    const gPts = Number(pp?.pts ?? pp?.points ?? pp?.stableford ?? pp?.sf ?? pp?.totalPoints ?? pp?.netPoints);
+    if (!Number.isFinite(gPts)) continue;
+    const teeLabel = String(pp?.teeLabel ?? pp?.tee ?? pp?.tee_name ?? pp?.teeName ?? "").toLowerCase().trim();
+    const genderRaw = String(pp?.gender ?? pp?.sex ?? "").toUpperCase();
+    const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
+    const groupKey = teeLabel || gender;
+    groupSums.set(groupKey, (groupSums.get(groupKey) || 0) + gPts);
+    groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
+  }
+  const groupAvgByKey = new Map();
+  for (const [k, sum] of groupSums.entries()) {
+    const c = groupCounts.get(k) || 1;
+    groupAvgByKey.set(k, sum / c);
+  }
 
   if (Number.isFinite(dateMs)) {
     roundStats.push({ dateMs, roundAvg, n: ptsList.length });
@@ -3421,11 +3423,11 @@ seasonArr.forEach(sr => {
     // handicap at the time (exact HI)
     const hi = Number(p?.startExact ?? p?.index ?? p?.hi ?? p?.handicap ?? p?.exact ?? p?.hiExact);
 
-    // --- NEW: carry tee/gender grouping into odds model ---
-    const teeLabel = String(p?.teeLabel || "").toLowerCase().trim();
-    const gender = String(p?.gender || "M").toUpperCase();
+    const teeLabel = String(p?.teeLabel ?? p?.tee ?? p?.tee_name ?? p?.teeName ?? "").toLowerCase().trim();
+    const genderRaw = String(p?.gender ?? p?.sex ?? "").toUpperCase();
+    const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
     const groupKey = teeLabel || gender;
-    const groupAvg = Number.isFinite(_groupAvg?.[groupKey]) ? _groupAvg[groupKey] : roundAvg;
+    const groupAvg = groupAvgByKey.get(groupKey) ?? roundAvg;
 
     seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs, roundAvg, gender, teeLabel, groupKey, groupAvg });
     leagueKeys.add(k);
@@ -3487,9 +3489,9 @@ const rows = Array.from(leagueKeys).map(k => {
   const resHist = hist
     .map(h => {
       const pts = Number(h.pts);
-      const ra = Number.isFinite(Number(h.groupAvg)) ? Number(h.groupAvg) : Number(h.roundAvg);
+      const ra = Number(h.groupAvg ?? h.roundAvg);
       if (!Number.isFinite(pts) || !Number.isFinite(ra)) return null;
-      return { res: (pts - ra), pts, ra, dateMs: h.dateMs, hi: h.hi };
+      return { res: (pts - ra), pts, ra, dateMs: h.dateMs, hi: h.hi, groupKey: h.groupKey, gender: h.gender, teeLabel: h.teeLabel };
     })
     .filter(Boolean);
 
@@ -3727,6 +3729,30 @@ for (let s = 0; s < sims; s++){
               : (c4 >= 2.10 && gap >= 0.03) ? "Medium"
               : "Low";
 
+
+            // ---- DEBUG HOOK (temporary): inspect grouping in browser console ----
+            try {
+              const groups = Array.from(
+                new Set(seasonPlayerRows.map(r => String(r.groupKey || "").toLowerCase()).filter(Boolean))
+              ).sort();
+
+              window.__ODDS_DEBUG = {
+                groups,
+                sample: seasonPlayerRows.slice(0, 40).map(r => ({
+                  name: r.name,
+                  pts: r.pts,
+                  gender: r.gender,
+                  teeLabel: r.teeLabel,
+                  groupKey: r.groupKey,
+                  groupAvg: r.groupAvg,
+                  roundAvg: r.roundAvg,
+                  dateMs: r.dateMs,
+                })),
+              };
+            } catch (e) {
+              window.__ODDS_DEBUG = { error: String(e) };
+            }
+            // ---- END DEBUG ----
             return {
               sims,
               rows: rowsByWin,
