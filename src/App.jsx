@@ -1949,10 +1949,43 @@ function readStablefordPerHole(row) {
           };
         }) : [];
 
+        
+        // --- Players: parse Name/Hdcp + (if present) Gender/Tee columns ---
+        const normGender = (g) => {
+          const v = String(g || "").trim().toLowerCase();
+          if (!v) return "";
+          if (v === "m" || v === "male" || v === "man" || v === "men" || v === "gents" || v === "gent") return "M";
+          if (v === "f" || v === "female" || v === "woman" || v === "women" || v === "ladies" || v === "lady") return "F";
+          return "";
+        };
+
+        const findColIdx = (row, candidates) => {
+          const cells = (row || []).map((x) => String(x || "").trim().toLowerCase());
+          for (const c of candidates) {
+            const idx = cells.findIndex((t) => t === c || t.replace(/\s+/g, "") === c.replace(/\s+/g, ""));
+            if (idx >= 0) return idx;
+          }
+          return -1;
+        };
+
         let playerHeaderRow = -1;
+        let idxName = 0, idxHdcp = 1, idxGender = -1, idxTee = -1;
+
         for (let i = 0; i < lines.length; i++) {
-          if ((lines[i][0] || "") === "Name" && (lines[i][1] || "") === "Hdcp") {
-            playerHeaderRow = i; break;
+          const row = lines[i];
+          if (!row || !row.length) continue;
+
+          const nameIdx = findColIdx(row, ["name", "player", "player name", "playername"]);
+          const hdcpIdx = findColIdx(row, ["hdcp", "handicap", "hcp"]);
+          if (nameIdx >= 0 && hdcpIdx >= 0) {
+            playerHeaderRow = i;
+            idxName = nameIdx;
+            idxHdcp = hdcpIdx;
+
+            // Optional columns (won't exist on older exports)
+            idxGender = findColIdx(row, ["gender", "sex"]);
+            idxTee = findColIdx(row, ["tee", "teelabel", "tee label", "tee name", "teename"]);
+            break;
           }
         }
 
@@ -1961,14 +1994,29 @@ function readStablefordPerHole(row) {
           for (let i = playerHeaderRow + 1; i < lines.length; i++) {
             const row = lines[i];
             if (!row) break;
-            const name = (row[0] || "").trim();
+
+            const name = (row[idxName] || "").trim();
             if (!name) break;
             if (isTeamLike(name) || /^player$/i.test(name)) continue;
-            const hcap = parseFloat((row[1] || "").trim());
-            if (!Number.isNaN(hcap)) players.push({ name, handicap: hcap, gender: "M", teeLabel: "" });
+
+            const hcap = parseFloat(String(row[idxHdcp] || "").trim());
+            if (Number.isNaN(hcap)) continue;
+
+            const g = idxGender >= 0 ? normGender(row[idxGender]) : "";
+            const tee = idxTee >= 0 ? String(row[idxTee] || "").trim() : "";
+
+            // Defaults preserve old behaviour, but allow explicit CSV fields to override
+            players.push({
+              name,
+              handicap: hcap,
+              gender: g || "M",
+              teeLabel: tee || ""
+            });
           }
         }
 
+        // --- Fallback heuristic: if export didn't include Gender/Tee in the player block ---
+        // Try to infer tee labels and genders from anywhere in the file (legacy exports).
         const genderMap = {};
         const teeLabelMap = {};
         const looksLikeTeeLabel = (s) => {
@@ -1985,21 +2033,32 @@ function readStablefordPerHole(row) {
           if (!row) continue;
           const nm = (row[0] || "").trim();
           if (!nm) continue;
-          const col1 = (row[1] || "").trim();
-          if (!col1) continue;
-          const teeLower = col1.toLowerCase();
 
-          // Only capture tee labels from the CSV (not numeric leaderboard columns)
-          if (looksLikeTeeLabel(col1)) teeLabelMap[nm] = col1;
-          if (/women|ladies|red tee|redtees?/.test(teeLower)) genderMap[nm] = "F";
-          else if (genderMap[nm] == null) genderMap[nm] = "M";
+          // Check a few early columns (exports vary)
+          for (let c = 1; c <= 4; c++) {
+            const cell = (row[c] || "").trim();
+            if (!cell) continue;
+            if (looksLikeTeeLabel(cell) && !teeLabelMap[nm]) teeLabelMap[nm] = cell;
+            const cellLower = cell.toLowerCase();
+            if (/women|ladies/.test(cellLower)) genderMap[nm] = "F";
+          }
+          if (genderMap[nm] == null) genderMap[nm] = "M";
         }
+
         for (const p of players) {
-          if (genderMap[p.name]) p.gender = genderMap[p.name];
-          if (teeLabelMap[p.name]) p.teeLabel = teeLabelMap[p.name];
+          if (!p.gender && genderMap[p.name]) p.gender = genderMap[p.name];
+          if (!p.teeLabel && teeLabelMap[p.name]) p.teeLabel = teeLabelMap[p.name];
         }
 
-        // Build a minimal tee layout when CourseLayout is missing.
+
+        if (typeof window !== "undefined" && window.__SMART_ODDS_DEBUG) {
+          console.log("[PARSE CSV PLAYERS]", {
+            count: players.length,
+            sample: players.slice(0, 5).map(p => ({ name: p.name, handicap: p.handicap, gender: p.gender, teeLabel: p.teeLabel }))
+          });
+        }
+
+// Build a minimal tee layout when CourseLayout is missing.
         // Uses Par + SI from the scorecard, and tee labels found inside the CSV (e.g., "66 tee").
         let teesFinal = tees;
         if ((!teesFinal || !teesFinal.length) && parsedPars && parsedPars.length === 18) {
