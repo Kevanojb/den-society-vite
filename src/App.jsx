@@ -3474,6 +3474,7 @@ seasonArr.forEach(sr => {
   const parsed = sr && sr.parsed ? sr.parsed : sr; // tolerate already-parsed shapes
   const players = (parsed && Array.isArray(parsed.players)) ? parsed.players : [];
   const dateMs = Number.isFinite(sr?.dateMs) ? sr.dateMs : (Number.isFinite(parsed?.dateMs) ? parsed.dateMs : null);
+  const file = String(sr?.file ?? parsed?.file ?? "");
 
   // Round field average Stableford points (used to normalize player results across "easy/hard" days)
   const ptsList = players
@@ -3501,7 +3502,7 @@ seasonArr.forEach(sr => {
   }
 
   if (Number.isFinite(dateMs)) {
-    roundStats.push({ dateMs, roundAvg, n: ptsList.length });
+    roundStats.push({ dateMs, roundAvg, n: ptsList.length, file });
   }
 
   players.forEach(p => {
@@ -3523,7 +3524,7 @@ seasonArr.forEach(sr => {
     const groupKey = teeLabel || gender;
     const groupAvg = groupAvgByKey.get(groupKey) ?? roundAvg;
 
-    seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs, roundAvg, gender, teeLabel, groupKey, groupAvg });
+    seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs, roundAvg, gender, teeLabel, groupKey, groupAvg, file });
     leagueKeys.add(k);
   });
 });
@@ -3931,6 +3932,10 @@ for (let s = 0; s < sims; s++){
               window.__ODDS_DEBUG = {
                 ...prev,
                 ts: Date.now(),
+                seasonRoundsCount: seasonArr.length,
+                seasonRoundDates: Array.from(new Set(seasonArr.map(r => (Number.isFinite(Number(r?.dateMs)) ? new Date(Number(r.dateMs)).toISOString().slice(0,10) : (r?.parsed?.dateMs ? new Date(Number(r.parsed.dateMs)).toISOString().slice(0,10) : null))).filter(Boolean))).sort(),
+                seasonPlayerRowsCount: seasonPlayerRows.length,
+
                 leagueBaseMu,
                 leagueBaseSigma,
                 leagueHiSlope,
