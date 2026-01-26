@@ -13794,7 +13794,9 @@ return {
                      if (exFile && rr.file === exFile) continue;
                      const parsed = rr.parsed;
                      const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                     const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
+                     // Match players using the same normalisation used elsewhere in the app
+                     const targetKey = normalizeName(String(r.name || ""));
+                     const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
                      if (!pl) continue;
 
                      // tee for that round
@@ -13860,7 +13862,9 @@ return {
                   if (!rr || !rr.parsed) continue;
                   const parsed = rr.parsed;
                   const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                  const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
+                  // Match players using the same normalisation used elsewhere in the app
+                  const targetKey = normalizeName(String(r.name || ""));
+                  const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
                   if (!pl) continue;
 
                   let pts2 = Number(pl.points);
