@@ -3766,9 +3766,28 @@ const winnerOdds = useMemo(() => {
     if (bestK) winCounts.set(bestK, (winCounts.get(bestK) || 0) + 1);
   }
 
-  const odds = playerModels
+  let odds = playerModels
     .map(p => ({ ...p, winProb: (winCounts.get(p.k) || 0) / sims }))
     .sort((a,b)=>b.winProb-a.winProb);
+
+  // If anything went sideways (data not ready yet), fall back to current leaderboard so UI never goes blank
+  if (!odds.length) {
+    const fallback = (Array.isArray(currentRows) ? currentRows : [])
+      .filter(r => r && r.name)
+      .map(r => ({
+        k: normalizeName(String(r.name || "")),
+        name: String(r.name || "").trim(),
+        winProb: 0,
+        groupKey: String(r.teeLabel || r.tee || "all") || "all",
+        mu: leagueBaseMu,
+        sigma: leagueBaseSigma
+      }))
+      .filter(p => p.k && p.name);
+
+    const denom = fallback.length || 1;
+    fallback.forEach(p => (p.winProb = 1 / denom));
+    odds = fallback;
+  }
 
   // Confidence: concentration + gap between #3/#4 (simple heuristic)
   const top4 = odds.slice(0,4);
