@@ -3449,7 +3449,7 @@ function PlayerScorecardView({ computed, courseTees, setView }) {
 }
 
    // --- EVENT SCREEN (WITH CALCULATOR) ---
-   function EventScreen({ computed, setView, courseSlope, setCourseSlope, courseRating, setCourseRating, startHcapMode, setStartHcapMode, nextHcapMode, setNextHcapMode , seasonRoundsFiltered}) {
+   function EventScreen({ computed, setView, courseSlope, setCourseSlope, courseRating, setCourseRating, startHcapMode, setStartHcapMode, nextHcapMode, setNextHcapMode, seasonRoundsFiltered, seasonRoundsAll }) {
           
 
           const [showModelInternals, setShowModelInternals] = useState(false);
@@ -3457,7 +3457,8 @@ function PlayerScorecardView({ computed, courseTees, setView }) {
           // ---- Next Event Winner Odds (Deterministic Monte Carlo, Stableford points) ----
           const winnerOdds = useMemo(() => {
             const currentRows = (Array.isArray(computed) ? computed : []).filter(r => r && r.name);
-            const seasonArr = Array.isArray(seasonRoundsFiltered) ? seasonRoundsFiltered : [];
+            const seasonArr = Array.isArray(seasonRoundsAll) ? seasonRoundsAll : (Array.isArray(seasonRoundsFiltered) ? seasonRoundsFiltered : []);
+            // NOTE: odds use full season history (seasonRoundsAll) to avoid tiny sample sizes; filters only affect on-screen leaderboard.
             // League roster = anyone who has appeared in season rounds, plus anyone in the current round
             const byKeyCurrent = new Map();
             currentRows.forEach(r => {
@@ -3508,8 +3509,11 @@ seasonArr.forEach(sr => {
     const k = normalizeName(nm);
     if (!k) return;
 
-    // stableford points (try common keys)
-    const pts = Number(p?.pts ?? p?.points ?? p?.stableford ?? p?.sf ?? p?.totalPoints ?? p?.netPoints);
+	    // stableford points (try common keys; fall back to summing per-hole points)
+	    let pts = Number(p?.pts ?? p?.points ?? p?.stableford ?? p?.sf ?? p?.totalPoints ?? p?.netPoints);
+	    if (!Number.isFinite(pts) && Array.isArray(p?.perHole)) {
+	      try { pts = p.perHole.reduce((a,b)=>a + (Number(b)||0), 0); } catch (e) { /* ignore */ }
+	    }
     // handicap at the time (exact HI)
     const hi = Number(p?.startExact ?? p?.index ?? p?.hi ?? p?.handicap ?? p?.exact ?? p?.hiExact);
 
@@ -3567,6 +3571,44 @@ for (let i=0;i<_rounds.length;i++){
 }
 // baseline sigma: round-to-round swing in field scoring; keep it in a sensible band
 const leagueBaseSigma = Math.max(0.8, Math.min(4.0, (bVarW>0 ? Math.sqrt(bVarS/bVarW) : 1.6)));
+
+// League-wide relationship between Handicap Index (HI) and Stableford performance vs field.
+// We learn this from season history so we can shrink player-specific estimates toward something sane.
+let leagueHiSlope = 0.75; // default: ~0.75 Stableford pts per 1 HI (relative to field)
+try {
+  let nLS = 0;
+  let meanX = 0, meanY = 0;
+  // First pass: means
+  for (let i=0;i<seasonPlayerRows.length;i++){
+    const r = seasonPlayerRows[i];
+    const x = Number(r.hi);
+    const y = Number(r.pts) - Number(r.roundAvg);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    nLS += 1;
+    meanX += x;
+    meanY += y;
+  }
+  if (nLS >= 20) {
+    meanX /= nLS; meanY /= nLS;
+    let sxx = 0, sxy = 0;
+    for (let i=0;i<seasonPlayerRows.length;i++){
+      const r = seasonPlayerRows[i];
+      const x = Number(r.hi);
+      const y = Number(r.pts) - Number(r.roundAvg);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const dx = x - meanX;
+      const dy = y - meanY;
+      sxx += dx*dx;
+      sxy += dx*dy;
+    }
+    if (sxx > 1e-6) {
+      leagueHiSlope = sxy / sxx;
+      // cap to a sensible range: higher HI should generally increase points
+      leagueHiSlope = Math.max(0.0, Math.min(2.0, leagueHiSlope));
+    }
+  }
+} catch {}
+
 
 // ---- Build per-player model rows ----
 const rows = Array.from(leagueKeys).map(k => {
@@ -3647,13 +3689,68 @@ const rows = Array.from(leagueKeys).map(k => {
   // For NEXT-round forecasting:
   // - In No change mode, we tee off on the current index (prevStartExact).
   // - In WHS Diff / Legacy Formula, we tee off on the computed NEXT handicap.
-  const startExact = (String(nextHcapMode || "").toLowerCase() === "nochange") ? prevStartExact : nextExactNum;
+  // For NEXT-round forecasting, choose which HI we tee off on.
+// UI values in this app have historically been: "same" (No Change), "den" (Legacy), "whs" (WHS diff)
+// but we also tolerate "nochange" for older builds.
+const _mode = String(nextHcapMode || "").toLowerCase();
+const noChange = (_mode === "same" || _mode === "nochange" || _mode === "no-change" || _mode === "no_change");
+const startExact = noChange ? prevStartExact : nextExactNum;
 
-  // Handicap movement used to adjust expected points (≈ 1 pt per HI stroke)
-  const deltaModelHI = nextExactNum - prevStartExact;
+// --- Player-specific HI→Stableford sensitivity (learned from season history) ---
+// We learn how this player's Stableford residual (pts - roundAvg) changes with HI.
+// Then we predict the residual at the HI they'll tee off on next round.
+// This captures "big cut after a spike score → less likely to spike again".
+let hiMean = prevStartExact;
+let hiSlope = leagueHiSlope; // shrink toward league estimate by default
+try {
+  let wH=0, xS=0, yS=0;
+  for (let i=0;i<last12.length;i++){
+    const age = (last12.length-1)-i;
+    const w = Math.pow(decay, age);
+    const x = Number(last12[i].hi);
+    const y = Number(last12[i].res);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    wH += w;
+    xS += w * x;
+    yS += w * y;
+  }
+  if (wH > 0) {
+    const mx = xS / wH;
+    const my = yS / wH;
+    hiMean = mx;
 
-  // Expected points: league baseline + personal residual + HI movement, clamped.
-  const expPts = clamp(leagueBaseMu + resMu + deltaModelHI, 18, 56);
+    let sxx=0, sxy=0, nPairs=0;
+    for (let i=0;i<last12.length;i++){
+      const age = (last12.length-1)-i;
+      const w = Math.pow(decay, age);
+      const x = Number(last12[i].hi);
+      const y = Number(last12[i].res);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const dx = x - mx;
+      const dy = y - my;
+      sxx += w * dx*dx;
+      sxy += w * dx*dy;
+      nPairs += 1;
+    }
+
+    // Ridge to avoid blowing up with tiny HI variance (many players don't change HI much over 6 rounds)
+    const ridge = 1.25; // acts like a prior HI variance
+    const rawSlope = (sxx > 1e-6) ? (sxy / (sxx + ridge)) : leagueHiSlope;
+
+    // Shrink toward league slope for small samples
+    const shrinkSlope = nPairs / (nPairs + 4); // 0..1
+    hiSlope = (rawSlope * shrinkSlope) + (leagueHiSlope * (1 - shrinkSlope));
+
+    // cap to sane range (positive relationship)
+    hiSlope = Math.max(0.0, Math.min(2.0, hiSlope));
+  }
+} catch {}
+
+// Predict residual at the HI we tee off on next round.
+const resAtStartHI = resMu + hiSlope * (startExact - hiMean);
+
+// Expected points: league baseline + predicted residual at start HI, clamped.
+const expPts = clamp(leagueBaseMu + resAtStartHI, 18, 56);
 
   const deltaHI = nextExactNum - startExact;
 
@@ -3668,7 +3765,6 @@ const rows = Array.from(leagueKeys).map(k => {
     startExact,
     nextExactNum,
     deltaHI,
-    deltaModelHI,
     expPts,
     formMu,
     formSigma,
@@ -3676,7 +3772,8 @@ const rows = Array.from(leagueKeys).map(k => {
     // components used by the simulator
     modelBaseMu: leagueBaseMu,
     modelBaseSigma: leagueBaseSigma,
-    modelResMu: resMu,
+                leagueHiSlope,
+    modelResMu: resAtStartHI,
     modelResSigma: resSigma,
     roundsUsed: n
   };
@@ -3740,9 +3837,9 @@ const baseSigma = (rows[0] && Number.isFinite(Number(rows[0].modelBaseSigma))) ?
 
 // Precompute per-player mean components + individual sigma
 const addMu = rows.map(r => {
+  // modelResMu is already the predicted residual at the player's start HI
   const rm = Number.isFinite(Number(r.modelResMu)) ? Number(r.modelResMu) : 0;
-  const dh = Number.isFinite(Number(r.deltaModelHI)) ? Number(r.deltaModelHI) : 0;
-  return rm + dh;
+  return rm;
 });
 const indSig = rows.map(r => {
   const s = Number.isFinite(Number(r.modelResSigma)) ? Number(r.modelResSigma) : 4.0;
@@ -3820,27 +3917,52 @@ for (let s = 0; s < sims; s++){
               : "Low";
 
 
-            // ---- DEBUG HOOK (temporary): inspect grouping in browser console ----
+            // ---- DEBUG HOOK: inspect model + inputs in browser console ----
             try {
               const groups = Array.from(
                 new Set(seasonPlayerRows.map(r => String(r.groupKey || "").toLowerCase()).filter(Boolean))
               ).sort();
 
+              // keep existing debug payload if already set elsewhere
+              const prev = (typeof window !== "undefined" && window.__ODDS_DEBUG && typeof window.__ODDS_DEBUG === "object")
+                ? window.__ODDS_DEBUG
+                : {};
+
               window.__ODDS_DEBUG = {
+                ...prev,
+                ts: Date.now(),
+                leagueBaseMu,
+                leagueBaseSigma,
+                leagueHiSlope,
+                leagueWithinSigma: (rows && rows.length)
+                  ? Math.sqrt(rows.reduce((a,r)=>a + Math.pow(Number(r.formSigma||0),2), 0) / Math.max(1, rows.length))
+                  : null,
                 groups,
-                sample: seasonPlayerRows.slice(0, 40).map(r => ({
+                // raw per-player per-round rows (unfiltered season history)
+                sample: seasonPlayerRows.slice(-120).map(r => ({
                   name: r.name,
                   pts: r.pts,
-                  gender: r.gender,
+                  roundAvg: r.roundAvg,
+                  roundStd: null,
                   teeLabel: r.teeLabel,
+                  dateMs: r.dateMs,
+                  gender: r.gender,
                   groupKey: r.groupKey,
                   groupAvg: r.groupAvg,
-                  roundAvg: r.roundAvg,
-                  dateMs: r.dateMs,
+                  hi: r.hi,
                 })),
+                // model output snapshot (what the odds table should be showing)
+                model: {
+                  sims,
+                  confidence,
+                  c4,
+                  gap,
+                  rows: rowsByWin.slice(0, 60),
+                  top4: rowsByTop4.slice(0, 4),
+                }
               };
             } catch (e) {
-              window.__ODDS_DEBUG = { error: String(e) };
+              try { window.__ODDS_DEBUG = { error: String(e) }; } catch {}
             }
             // ---- END DEBUG ----
             return {
@@ -3851,7 +3973,7 @@ for (let s = 0; s < sims; s++){
               c4,
               gap,
             };
-          }, [computed, nextHcapMode, seasonRoundsFiltered]);
+          }, [computed, nextHcapMode, seasonRoundsAll, seasonRoundsFiltered]);
 return (
             <section className="content-card p-4 md:p-6">
               <Breadcrumbs items={[{ label: "Round Leaderboard" }]} />
@@ -12126,6 +12248,16 @@ const handleAdminPassword = React.useCallback((pw) => {
           return _filterSeasonRounds(Array.isArray(seasonRounds) ? seasonRounds : [], seasonYear, seasonLimit);
         }, [seasonRounds, seasonYear, seasonLimit]);
 
+        // All rounds in the selected season (ignores seasonLimit)
+        // Used by Winner Odds so the model can use the full in-season history.
+        const seasonRoundsInSeasonAll = React.useMemo(() => {
+          return _filterSeasonRounds(
+            Array.isArray(seasonRounds) ? seasonRounds : [],
+            seasonYear,
+            "All" // IMPORTANT: no limit
+          );
+        }, [seasonRounds, seasonYear]);
+
 const [seasonLoading, setSeasonLoading] = useState(false);
         // Auto-load season rounds so Winner Odds can include all league players (from season rounds)
         React.useEffect(() => {
@@ -13665,7 +13797,9 @@ return {
                      if (exFile && rr.file === exFile) continue;
                      const parsed = rr.parsed;
                      const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                     const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
+                     // Match players using the same normalisation used elsewhere in the app
+                     const targetKey = normalizeName(String(r.name || ""));
+                     const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
                      if (!pl) continue;
 
                      // tee for that round
@@ -13731,7 +13865,9 @@ return {
                   if (!rr || !rr.parsed) continue;
                   const parsed = rr.parsed;
                   const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                  const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
+                  // Match players using the same normalisation used elsewhere in the app
+                  const targetKey = normalizeName(String(r.name || ""));
+                  const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
                   if (!pl) continue;
 
                   let pts2 = Number(pl.points);
@@ -14083,7 +14219,7 @@ return (
   />
 )}
 {view === "past" && <PastEvents sharedGroups={sharedGroups} loadShared={loadShared} setView={setView} />}
-              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode}  seasonRoundsFiltered={seasonRoundsFiltered} />}
+              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode} seasonRoundsFiltered={seasonRoundsFiltered} seasonRoundsAll={seasonRoundsInSeasonAll} />}
               {view === "banter" && <BanterStats computed={computedFiltered} setView={setView} />}
               {view === "guide" && <GuideView setView={setView} />}
               {view === "mirror_read" && <MirrorReadView setView={setView} />}
