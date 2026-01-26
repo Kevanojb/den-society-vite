@@ -3916,20 +3916,42 @@ const winnerOdds = useMemo(() => {
   // Debug for you
   try {
     if (typeof window !== "undefined") {
-      ((window.__ODDS_DEBUG = window.__ODDS_DEBUG || {})).groups = Array.from(new Set(seasonPlayerRows.map(r => r.groupKey))).sort();
-      ((window.__ODDS_DEBUG = window.__ODDS_DEBUG || {})).sample = seasonPlayerRows.slice(-50); // last 50 rows for inspection
-      window.__ODDS_DEBUG.ts = Date.now();
+      const dbg = (window.__ODDS_DEBUG = window.__ODDS_DEBUG || {});
+      dbg.groups = Array.from(new Set(seasonPlayerRows.map(r => r.groupKey))).sort();
+      dbg.sample = seasonPlayerRows.slice(-50); // last 50 rows for inspection
+      dbg.oddsTop = (odds || []).slice(0, 25).map(p => ({
+        name: p.name,
+        winProb: p.winProb,
+        top3Pct: p.top3Pct,
+        top4Pct: p.top4Pct,
+        mu: p.mu,
+        sigma: p.sigma,
+        nextHi: p.nextHi,
+        groupKey: p.groupKey,
+        rounds: p.rounds
+      }));
+      dbg.meta = {
+        simCount,
+        playerModels: playerModels.length,
+        seasonRows: seasonPlayerRows.length,
+        confidence,
+        c4: top4Sum,
+        gap
+      };
+      dbg.ts = Date.now();
     }
   } catch {}
 
   return {
-    sims,
+    sims: simCount,
     leagueBaseMu,
     leagueBaseSigma,
     confidence,
     gap,
+    c4: top4Sum,
     odds,
     top4,
+    rows: odds,
   };
 }, [computed, nextHcapMode, seasonRoundsFiltered]);
 return (
