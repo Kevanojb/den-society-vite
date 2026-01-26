@@ -12245,6 +12245,16 @@ const handleAdminPassword = React.useCallback((pw) => {
           return _filterSeasonRounds(Array.isArray(seasonRounds) ? seasonRounds : [], seasonYear, seasonLimit);
         }, [seasonRounds, seasonYear, seasonLimit]);
 
+        // All rounds in the selected season (ignores seasonLimit)
+        // Used by Winner Odds so the model can use the full in-season history.
+        const seasonRoundsInSeasonAll = React.useMemo(() => {
+          return _filterSeasonRounds(
+            Array.isArray(seasonRounds) ? seasonRounds : [],
+            seasonYear,
+            "All" // IMPORTANT: no limit
+          );
+        }, [seasonRounds, seasonYear]);
+
 const [seasonLoading, setSeasonLoading] = useState(false);
         // Auto-load season rounds so Winner Odds can include all league players (from season rounds)
         React.useEffect(() => {
@@ -14202,7 +14212,7 @@ return (
   />
 )}
 {view === "past" && <PastEvents sharedGroups={sharedGroups} loadShared={loadShared} setView={setView} />}
-              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode} seasonRoundsFiltered={seasonRoundsFiltered} seasonRoundsAll={seasonRounds} />}
+              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode} seasonRoundsFiltered={seasonRoundsFiltered} seasonRoundsAll={seasonRoundsInSeasonAll} />}
               {view === "banter" && <BanterStats computed={computedFiltered} setView={setView} />}
               {view === "guide" && <GuideView setView={setView} />}
               {view === "mirror_read" && <MirrorReadView setView={setView} />}
