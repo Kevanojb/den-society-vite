@@ -434,7 +434,7 @@ function __filterSeries(series){
           // Otherwise, map the round date into a season using seasonsDef date ranges (same as Players Progress)
           const ms = Number.isFinite(Number(r?.dateMs)) ? Number(r.dateMs)
             : (Number.isFinite(Number(r?.parsed?.dateMs)) ? Number(r.parsed.dateMs)
-            : (r?.date ? Date.parse(r.date) : NaN));
+            : (r?.date ? _coerceDateMs(r.date) : NaN));
 
           if (Number.isFinite(ms)) {
             try {
@@ -12256,8 +12256,8 @@ const handleAdminPassword = React.useCallback((pw) => {
           let arr = Array.isArray(roundsIn) ? roundsIn.slice() : [];
           // ensure chronological
           arr.sort((a,b)=>{
-            const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? Date.parse(a.date) : Number.POSITIVE_INFINITY));
-            const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? Date.parse(b.date) : Number.POSITIVE_INFINITY));
+            const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? _coerceDateMs(a.date) : Number.POSITIVE_INFINITY));
+            const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? _coerceDateMs(b.date) : Number.POSITIVE_INFINITY));
             if (da !== db) return da - db;
             return String(a?.file||"").localeCompare(String(b?.file||""));
           });
@@ -12268,7 +12268,7 @@ const handleAdminPassword = React.useCallback((pw) => {
             // Prefer mapping the round date into a season using the seasons table date ranges
             const ms = Number.isFinite(Number(r?.dateMs)) ? Number(r.dateMs)
               : (Number.isFinite(Number(r?.parsed?.dateMs)) ? Number(r.parsed.dateMs)
-              : (r?.date ? Date.parse(r.date) : NaN));
+              : (r?.date ? _coerceDateMs(r.date) : NaN));
             if (Number.isFinite(ms)) {
               try {
                 const mapped = seasonIdForDateMs(ms, seasonsDef);
@@ -12300,10 +12300,13 @@ const handleAdminPassword = React.useCallback((pw) => {
   // Keep an unfiltered model for admin player management (merged names, diagnostics etc.)
   const modelAll = buildSeasonPlayerModel(filtered);
   setSeasonModelAll(modelAll);
+  try { if (typeof window !== 'undefined') window.__seasonModelAll = modelAll; } catch(e) {}
 
   // Apply admin visibility filter by rebuilding the model with hidden keys excluded
   const model = buildSeasonPlayerModel(filtered, { hiddenKeys: hiddenKeySet });
   setSeasonModel(model);
+  try { if (typeof window !== 'undefined') window.__seasonModel = model; } catch(e) {}
+  try { if (typeof window !== 'undefined') window.__dslUiState = { seasonYear, seasonLimit }; } catch(e) {}
 
   if (model?.players?.length) {
     const ok = seasonPlayer && model.players.some(p => p.name === seasonPlayer);
@@ -13006,6 +13009,33 @@ const ptsArr = series.map(x=>Number(x.pts)).filter(Number.isFinite);
 //  - "Game 1,Nov 12 2025" / "Nov 12, 2025" / "November 12 2025"
 //  - "12 Nov 2025" / "12th November 2025"
 //  - "2025-11-12" / "12-11-2025"
+
+// Robust date coercion for UK/ISO strings -> UTC midnight ms.
+// Safari's Date.parse can treat dd/mm as US or NaN, so we never rely on it for numeric dates.
+function _coerceDateMs(v) {
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 0) return n;
+
+  const s = String(v ?? "").trim();
+  if (!s) return NaN;
+
+  // ISO yyyy-mm-dd (or yyyy/mm/dd or yyyy.mm.dd)
+  let m = s.match(/\b(20\d{2})[-\/\.](0?[1-9]|1[0-2])[-\/\.](0?[1-9]|[12]\d|3[01])\b/);
+  if (m) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+
+  // UK dd/mm/yyyy (or dd-mm-yyyy or dd.mm.yyyy)
+  m = s.match(/\b(0?[1-9]|[12]\d|3[01])[-\/\.](0?[1-9]|1[0-2])[-\/\.](20\d{2})\b/);
+  if (m) return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+  // Fall back to native parse for month-name formats (e.g. "Nov 12 2025") and other oddities
+  const msTry = Date.parse(s);
+  if (Number.isFinite(msTry)) {
+    const d = new Date(msTry);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  return NaN;
+}
+
 function _extractDateMsFromCsvText(csvText) {
   // Extract a playable date from the CSV contents (captain-friendly: no filename requirements).
   // Strategy:
@@ -13079,7 +13109,7 @@ function _extractDateMsFromCsvText(csvText) {
     if (labelMatch) {
       const raw = String(labelMatch[3] || "").trim();
       // Try ISO parse first
-      let msTry = Date.parse(raw);
+      let msTry = _coerceDateMs(raw);
       if (Number.isFinite(msTry)) {
         const d = new Date(msTry);
         return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -13267,8 +13297,8 @@ async function getTeesForCourseName(courseName) {
 
 // Sort rounds by in-CSV date (oldest first). If a file has no detectable date, push it to the end.
 rounds.sort((a, b) => {
-  const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? Date.parse(a.date) : Number.POSITIVE_INFINITY));
-  const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? Date.parse(b.date) : Number.POSITIVE_INFINITY));
+  const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? _coerceDateMs(a.date) : Number.POSITIVE_INFINITY));
+  const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? _coerceDateMs(b.date) : Number.POSITIVE_INFINITY));
   if (da !== db) return da - db;
   // tie-breaker: path name (stable)
   return String(a?.file || "").localeCompare(String(b?.file || ""));
@@ -13284,6 +13314,8 @@ setSeasonRounds(rounds);
   const filteredRounds = _filterSeasonRounds(rounds, seasonYear, seasonLimit);
   const model = buildSeasonPlayerModel(filteredRounds);
   setSeasonModel(model);
+  try { if (typeof window !== 'undefined') window.__seasonModel = model; } catch(e) {}
+  try { if (typeof window !== 'undefined') window.__dslUiState = { seasonYear, seasonLimit }; } catch(e) {}
   if (!seasonPlayer && model.players.length) setSeasonPlayer(model.players[0].name);
 
   setSeasonLoading(false);
@@ -13618,7 +13650,7 @@ async function savePlayerVisibility(nextHiddenKeys) {
 function seasonIdForDateMs(ms, seasonsArr) {
   try {
     const n = Number(ms);
-    const d = new Date(Number.isFinite(n) ? n : Date.parse(String(ms)));
+    const d = new Date(_coerceDateMs(ms));
     if (!Number.isFinite(d.getTime())) return null;
     const iso = d.toISOString().slice(0,10);
     for (const s of (seasonsArr || [])) {
