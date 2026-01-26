@@ -3236,18 +3236,12 @@ function PastEvents({ sharedGroups, loadShared, setView }) {
         const urls = Array.isArray(data?.photo_urls) ? data.photo_urls : [];
         cache.set(key, urls);
         return urls;
-      } catch {
+      } catch (e) {
         cache.set(key, []);
         return [];
       } finally {
         inflight.delete(key);
       }
-    })();
-
-    inflight.set(key, p);
-    return await p;
-  }
-
     })();
 
     inflight.set(key, p);
