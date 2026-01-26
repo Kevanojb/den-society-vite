@@ -3569,6 +3569,44 @@ for (let i=0;i<_rounds.length;i++){
 // baseline sigma: round-to-round swing in field scoring; keep it in a sensible band
 const leagueBaseSigma = Math.max(0.8, Math.min(4.0, (bVarW>0 ? Math.sqrt(bVarS/bVarW) : 1.6)));
 
+// League-wide relationship between Handicap Index (HI) and Stableford performance vs field.
+// We learn this from season history so we can shrink player-specific estimates toward something sane.
+let leagueHiSlope = 0.75; // default: ~0.75 Stableford pts per 1 HI (relative to field)
+try {
+  let nLS = 0;
+  let meanX = 0, meanY = 0;
+  // First pass: means
+  for (let i=0;i<seasonPlayerRows.length;i++){
+    const r = seasonPlayerRows[i];
+    const x = Number(r.hi);
+    const y = Number(r.pts) - Number(r.roundAvg);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    nLS += 1;
+    meanX += x;
+    meanY += y;
+  }
+  if (nLS >= 20) {
+    meanX /= nLS; meanY /= nLS;
+    let sxx = 0, sxy = 0;
+    for (let i=0;i<seasonPlayerRows.length;i++){
+      const r = seasonPlayerRows[i];
+      const x = Number(r.hi);
+      const y = Number(r.pts) - Number(r.roundAvg);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const dx = x - meanX;
+      const dy = y - meanY;
+      sxx += dx*dx;
+      sxy += dx*dy;
+    }
+    if (sxx > 1e-6) {
+      leagueHiSlope = sxy / sxx;
+      // cap to a sensible range: higher HI should generally increase points
+      leagueHiSlope = Math.max(0.0, Math.min(2.0, leagueHiSlope));
+    }
+  }
+} catch {}
+
+
 // ---- Build per-player model rows ----
 const rows = Array.from(leagueKeys).map(k => {
   const cur = byKeyCurrent.get(k);
@@ -3648,13 +3686,68 @@ const rows = Array.from(leagueKeys).map(k => {
   // For NEXT-round forecasting:
   // - In No change mode, we tee off on the current index (prevStartExact).
   // - In WHS Diff / Legacy Formula, we tee off on the computed NEXT handicap.
-  const startExact = (String(nextHcapMode || "").toLowerCase() === "nochange") ? prevStartExact : nextExactNum;
+  // For NEXT-round forecasting, choose which HI we tee off on.
+// UI values in this app have historically been: "same" (No Change), "den" (Legacy), "whs" (WHS diff)
+// but we also tolerate "nochange" for older builds.
+const _mode = String(nextHcapMode || "").toLowerCase();
+const noChange = (_mode === "same" || _mode === "nochange" || _mode === "no-change" || _mode === "no_change");
+const startExact = noChange ? prevStartExact : nextExactNum;
 
-  // Handicap movement used to adjust expected points (≈ 1 pt per HI stroke)
-  const deltaModelHI = nextExactNum - prevStartExact;
+// --- Player-specific HI→Stableford sensitivity (learned from season history) ---
+// We learn how this player's Stableford residual (pts - roundAvg) changes with HI.
+// Then we predict the residual at the HI they'll tee off on next round.
+// This captures "big cut after a spike score → less likely to spike again".
+let hiMean = prevStartExact;
+let hiSlope = leagueHiSlope; // shrink toward league estimate by default
+try {
+  let wH=0, xS=0, yS=0;
+  for (let i=0;i<last12.length;i++){
+    const age = (last12.length-1)-i;
+    const w = Math.pow(decay, age);
+    const x = Number(last12[i].hi);
+    const y = Number(last12[i].res);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    wH += w;
+    xS += w * x;
+    yS += w * y;
+  }
+  if (wH > 0) {
+    const mx = xS / wH;
+    const my = yS / wH;
+    hiMean = mx;
 
-  // Expected points: league baseline + personal residual + HI movement, clamped.
-  const expPts = clamp(leagueBaseMu + resMu + deltaModelHI, 18, 56);
+    let sxx=0, sxy=0, nPairs=0;
+    for (let i=0;i<last12.length;i++){
+      const age = (last12.length-1)-i;
+      const w = Math.pow(decay, age);
+      const x = Number(last12[i].hi);
+      const y = Number(last12[i].res);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const dx = x - mx;
+      const dy = y - my;
+      sxx += w * dx*dx;
+      sxy += w * dx*dy;
+      nPairs += 1;
+    }
+
+    // Ridge to avoid blowing up with tiny HI variance (many players don't change HI much over 6 rounds)
+    const ridge = 1.25; // acts like a prior HI variance
+    const rawSlope = (sxx > 1e-6) ? (sxy / (sxx + ridge)) : leagueHiSlope;
+
+    // Shrink toward league slope for small samples
+    const shrinkSlope = nPairs / (nPairs + 4); // 0..1
+    hiSlope = (rawSlope * shrinkSlope) + (leagueHiSlope * (1 - shrinkSlope));
+
+    // cap to sane range (positive relationship)
+    hiSlope = Math.max(0.0, Math.min(2.0, hiSlope));
+  }
+} catch {}
+
+// Predict residual at the HI we tee off on next round.
+const resAtStartHI = resMu + hiSlope * (startExact - hiMean);
+
+// Expected points: league baseline + predicted residual at start HI, clamped.
+const expPts = clamp(leagueBaseMu + resAtStartHI, 18, 56);
 
   const deltaHI = nextExactNum - startExact;
 
@@ -3677,6 +3770,7 @@ const rows = Array.from(leagueKeys).map(k => {
     // components used by the simulator
     modelBaseMu: leagueBaseMu,
     modelBaseSigma: leagueBaseSigma,
+                leagueHiSlope,
     modelResMu: resMu,
     modelResSigma: resSigma,
     roundsUsed: n
@@ -3837,6 +3931,7 @@ for (let s = 0; s < sims; s++){
                 ts: Date.now(),
                 leagueBaseMu,
                 leagueBaseSigma,
+                leagueHiSlope,
                 leagueWithinSigma: (rows && rows.length)
                   ? Math.sqrt(rows.reduce((a,r)=>a + Math.pow(Number(r.formSigma||0),2), 0) / Math.max(1, rows.length))
                   : null,
