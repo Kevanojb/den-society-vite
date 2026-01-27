@@ -2498,7 +2498,7 @@ function SeasonSelectionBar({
 }
 
 
-function Header({ eventName, statusMsg, courseName, view, setView }) {
+function Header({ leagueHeaderTitle, eventName, statusMsg, courseName, view, setView }) {
   return (
     <div className="hide-print sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top)" }}>
       {/* Slim sticky bar */}
@@ -2506,7 +2506,7 @@ function Header({ eventName, statusMsg, courseName, view, setView }) {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg md:text-xl font-extrabold tracking-tight text-squab-900 truncate">
-              Den Society League — Ultimate Edition
+              {leagueHeaderTitle || "Den Society League — Ultimate Edition"}
             </h1>
             <div className="text-[11px] text-neutral-500 truncate">
               {eventName || "Untitled Event"}
@@ -2565,7 +2565,7 @@ function SoloNav({ setView, left = null, title = null, right = null }) {
 }
 
 
-function SeasonPicker({ seasonsDef, seasonYear, setSeasonYear }) {
+function SeasonPicker({ seasonsDef, seasonYear, setSeasonYear, leagueTitle }) {
   // Build nice labels, especially for Den Society seasons that span two calendar years.
   const labelFor = (s) => {
     const raw = String((s && s.label) ? s.label : "").trim();
@@ -2585,11 +2585,12 @@ function SeasonPicker({ seasonsDef, seasonYear, setSeasonYear }) {
       else base = id || "";
     }
 
-    // Brand it as Den Society League unless it already includes it
+    // Brand it as the active league title unless it already includes it
+    const brand = String(leagueTitle || "Den Society League").trim();
     const baseLower = base.toLowerCase();
-    if (!baseLower.includes('Den Society')) base = `Den Society League ${base}`.trim();
-
-    return base || id || "";
+    const brandLower = brand.toLowerCase();
+    if (brand && !baseLower.includes(brandLower)) base = `${brand} ${base}`.trim();
+return base || id || "";
   };
 
   const opts = (seasonsDef || []).map((s) => ({
@@ -4342,7 +4343,7 @@ for (let i = 0; i < holes; i++) {
         const list = Object.values(season).filter((r) => !isTeamLike(r.name)).sort((a, b) => b.totalPoints - a.totalPoints || a.name.localeCompare(b.name));
         return (
           <section className="content-card p-3 md:p-5 hm-stage">
-            <SoloNav setView={setView} right={<SeasonPicker seasonsDef={seasonsDef} seasonYear={seasonYear} setSeasonYear={setSeasonYear} />} />
+            <SoloNav setView={setView} right={<SeasonPicker seasonsDef={seasonsDef} seasonYear={seasonYear} setSeasonYear={setSeasonYear} leagueTitle={LEAGUE_TITLE} />} />
             <h2 className="section-title mb-3">League</h2>
             <div className="overflow-auto table-wrap">
               <table className="min-w-full text-sm table-zebra">
@@ -4367,7 +4368,7 @@ for (let i = 0; i < holes; i++) {
         const colorForPts = (p) => { if(p >= 4) return "bg-purple-100 text-purple-700 font-bold"; if(p === 3) return "bg-emerald-100 text-emerald-800 font-semibold"; if(p === 2) return "text-neutral-800"; if(p === 1) return "bg-orange-50 text-orange-800"; if(p === 0) return "bg-red-50 text-red-300"; return ""; }
         return (
           <section className="content-card p-3 md:p-5 hm-stage">
-            <SoloNav setView={setView} right={<SeasonPicker seasonsDef={seasonsDef} seasonYear={seasonYear} setSeasonYear={setSeasonYear} />} />
+            <SoloNav setView={setView} right={<SeasonPicker seasonsDef={seasonsDef} seasonYear={seasonYear} setSeasonYear={setSeasonYear} leagueTitle={LEAGUE_TITLE} />} />
             <h2 className="section-title mb-3">Eclectic</h2>
             <div className="overflow-auto table-wrap">
               <table className="min-w-full text-xs md:text-sm table-zebra">
@@ -10013,12 +10014,14 @@ const comparator = uiCohort ? (uiCohort === "field" ? "field" : "band")
 
 
 // --- In-depth Guide (embedded) ---
-const DEEP_GUIDE_HTML = `<!doctype html>
+function buildDeepGuideHTML(leagueTitle){
+  const BRAND = String(leagueTitle || "Den Society League").trim();
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Den Society League — Golfer’s Guide</title>
+  <title>${BRAND} — Golfer’s Guide</title>
 
   <style>
     :root{
@@ -10388,7 +10391,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 <!-- iPhone: run as a standalone (full-screen) web app when launched from Home Screen -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Den Society League">
+<meta name="apple-mobile-web-app-title" content="${BRAND}">
 
 <!-- PWA manifest + app icons -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -10408,7 +10411,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
           </svg>
         </div>
         <div style="min-width:0">
-          <h1>Den Society League — Golfer’s Guide</h1>
+          <h1>${BRAND} — Golfer’s Guide</h1>
           <p>What it does • How to use it • How it actually drops your scores</p>
         </div>
       </div>
@@ -10972,6 +10975,7 @@ const DEEP_GUIDE_HTML = `<!doctype html>
 </body>
 </html>
 `;
+}
 // --- End In-depth Guide ---
 function GuideModePicker({ guideMode, setGuideMode }) {
   return (
@@ -11014,7 +11018,7 @@ function GuideModePicker({ guideMode, setGuideMode }) {
   );
 }
 
-function GuideView({ setView }) {
+function GuideView({ setView, leagueTitle }) {
   const [guideMode, setGuideMode] = React.useState(() => {
     try {
       return localStorage.getItem("denGuideMode") || "simple";
@@ -11037,10 +11041,10 @@ function GuideView({ setView }) {
       <GuideModePicker guideMode={guideMode} setGuideMode={setGuideMode} />
 <div className="rounded-2xl border border-squab-200 bg-white shadow-sm overflow-hidden">
           <iframe
-            title="Den Society League — In-depth guide"
+            title={`${leagueTitle} — In-depth guide`}
             className="w-full"
             style={{ height: "78vh" }}
-            srcDoc={DEEP_GUIDE_HTML}
+            srcDoc={buildDeepGuideHTML(leagueTitle)}
           />
         </div>
         <p className="mt-3 text-xs text-neutral-500">
@@ -12201,13 +12205,22 @@ function getLeagueSlug() {
 }
 const LEAGUE_SLUG = getLeagueSlug();
 
+const IS_WINTER_LEAGUE = LEAGUE_SLUG === "winter-league";
+// Display branding
+const LEAGUE_TITLE = IS_WINTER_LEAGUE ? "Wednesday League" : "Den Society League";
+const LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
+const LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
+try { if (typeof window !== "undefined") window.__league = { slug: LEAGUE_SLUG, isWinter: IS_WINTER_LEAGUE, title: LEAGUE_TITLE, bucket: undefined }; } catch(e) {}
+
+
 // Storage bucket per league (separate buckets)
-const BUCKET = LEAGUE_SLUG === "winter-league" ? "winter_league" : "den-events";
+const BUCKET = IS_WINTER_LEAGUE ? "winter_league" : "den-events";
+try { if (typeof window !== "undefined" && window.__league) window.__league.bucket = BUCKET; } catch(e) {}
 
 const STANDINGS_TABLE = "standings";
 
 // Default competition per league (used by seasons table + leaderboards)
-const COMPETITION = LEAGUE_SLUG === "winter-league" ? "winter" : "season";
+const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
 
 // Storage prefix for CSVs inside bucket.
 const PREFIX = "events";
@@ -13379,7 +13392,12 @@ setSeasonRounds(rounds);
         const [courseList, setCourseList] = useState([]);
         const [players, setPlayers] = useState([]);
         const [season, setSeason] = useState({});
-        const [eventName, setEventName] = useState("Den Society League");
+        const [eventName, setEventName] = useState(LEAGUE_TITLE);
+
+        // Keep browser tab title in sync with league route
+        useEffect(() => {
+          try { document.title = LEAGUE_HEADER_TITLE; } catch(e) {}
+        }, [LEAGUE_HEADER_TITLE]);
         const [courseTees, setCourseTees] = useState([]);
         const [courseName, setCourseName] = useState("");
         const [currentFile, setCurrentFile] = useState(null);
@@ -14308,7 +14326,7 @@ if (res.error) toast("Error: " + res.error.message);
 return (
           <div className="min-h-screen p-4 sm:p-6 bg-neutral-50">
             <div className="app-shell space-y-4 pt-1">
-              <Header eventName={eventName} statusMsg={statusMsg} courseName={courseName} view={view} setView={setView} />
+              <Header leagueHeaderTitle={LEAGUE_HEADER_TITLE} eventName={eventName} statusMsg={statusMsg} courseName={courseName} view={view} setView={setView} />
               <LoginModal open={loginOpen} busy={loginBusy} onClose={() => setLoginOpen(false)} onSubmit={handleLogin} />
               <AdminPasswordModal open={adminPwOpen} onClose={() => setAdminPwOpen(false)} onSubmit={handleAdminPassword} />
               <PlayerVisibilitySheet open={playersAdminOpen} onClose={() => setPlayersAdminOpen(false)} isAdmin={!!user} players={adminPlayerRoster} hiddenKeys={hiddenPlayerKeys} onSave={savePlayerVisibility} />
@@ -14370,7 +14388,7 @@ return (
 {view === "past" && <PastEvents sharedGroups={sharedGroups} loadShared={loadShared} setView={setView} />}
               {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode} seasonRoundsFiltered={seasonRoundsFiltered} seasonRoundsAll={seasonRoundsInSeasonAll} seasonModelAll={seasonModelAll} />}
               {view === "banter" && <BanterStats computed={computedFiltered} setView={setView} />}
-              {view === "guide" && <GuideView setView={setView} />}
+              {view === "guide" && <GuideView setView={setView} leagueTitle={LEAGUE_TITLE} />}
               {view === "mirror_read" && <MirrorReadView setView={setView} />}
 
 {view === "ratings" && <Ratings computed={computedFiltered} courseTees={courseTees} setView={setView} />}
