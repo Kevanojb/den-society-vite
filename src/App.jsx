@@ -30,6 +30,47 @@ var formatGrossVsPar = function (n) {
   if (n === 0) return "E";
   return (n > 0 ? "+" : "") + String(n);
 };
+
+// =========================
+// LEAGUE ROUTE + BRANDING (module-scope)
+// Ensures all views/components can access league title and bucket without ReferenceErrors.
+// Supports both "#/winter-league" and "#winter-league" style hashes.
+// =========================
+function getLeagueSlug() {
+  try {
+    const h = (typeof window !== "undefined" ? (window.location.hash || "") : "").replace(/^#\/?/, "");
+    if (h) return (h.split("/")[0] || "den-society").trim();
+    const parts = (typeof window !== "undefined" ? window.location.pathname : "").split("/").filter(Boolean);
+    // GH Pages base path: /den-society-vite/<slug>
+    return (parts[1] || parts[0] || "den-society").trim();
+  } catch (e) {
+    return "den-society";
+  }
+}
+
+const LEAGUE_SLUG = getLeagueSlug();
+const IS_WINTER_LEAGUE = LEAGUE_SLUG === "winter-league";
+
+// Display branding (titles)
+const LEAGUE_TITLE = IS_WINTER_LEAGUE ? "Wednesday League" : "Den Society League";
+const LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
+const LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
+
+// Storage bucket per league (separate buckets)
+const BUCKET = IS_WINTER_LEAGUE ? "winter_league" : "den-events";
+
+// Default competition per league (used by seasons table + leaderboards)
+const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
+
+// Storage prefix for CSVs inside bucket.
+const PREFIX = "events";
+
+try {
+  if (typeof window !== "undefined") {
+    window.__league = { slug: LEAGUE_SLUG, isWinter: IS_WINTER_LEAGUE, title: LEAGUE_TITLE, bucket: BUCKET, competition: COMPETITION };
+  }
+} catch (e) {}
+
 // --- 9-hole / partial round support ---
 // Guaranteed global helper (using `var`) so missing holes stay missing instead of becoming zeros.
 var _safeNum = function (v, fallback) {
@@ -12194,28 +12235,6 @@ const [user, setUser] = useState(null);
 // Supabase config
         const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
         const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-        // Supabase config (multi-league via URL route)
-function getLeagueSlug() {
-  const h = (window.location.hash || "").replace(/^#\/?/, "");
-  if (h) return h.split("/")[0] || "den-society";
-  const parts = window.location.pathname.split("/").filter(Boolean);
-  // GH Pages base path: /den-society-vite/<slug>
-  return parts[1] || parts[0] || "den-society";
-}
-const LEAGUE_SLUG = getLeagueSlug();
-
-const IS_WINTER_LEAGUE = LEAGUE_SLUG === "winter-league";
-// Display branding
-const LEAGUE_TITLE = IS_WINTER_LEAGUE ? "Wednesday League" : "Den Society League";
-const LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
-const LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
-try { if (typeof window !== "undefined") window.__league = { slug: LEAGUE_SLUG, isWinter: IS_WINTER_LEAGUE, title: LEAGUE_TITLE, bucket: undefined }; } catch(e) {}
-
-
-// Storage bucket per league (separate buckets)
-const BUCKET = IS_WINTER_LEAGUE ? "winter_league" : "den-events";
-try { if (typeof window !== "undefined" && window.__league) window.__league.bucket = BUCKET; } catch(e) {}
 
 const STANDINGS_TABLE = "standings";
 
