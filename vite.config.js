@@ -11,14 +11,15 @@ export default defineConfig({
       manifest: {
         name: "Den Society League",
         short_name: "Den League",
-        start_url: "/den-society-vite/",
+        start_url: "/den-society-vite/index.html",
+        scope: "/den-society-vite/",
         display: "standalone",
         background_color: "#ffffff",
         theme_color: "#10b981",
         icons: [
-          { src: "/den-society-vite/pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/den-society-vite/pwa-512.png", sizes: "512x512", type: "image/png" },
-          { src: "/den-society-vite/pwa-512.png", sizes: "512x512", type: "image/png", purpose: "maskable any" }
+          { src: "pwa-192.png", sizes: "192x192", type: "image/png" },
+          { src: "pwa-512.png", sizes: "512x512", type: "image/png" },
+          { src: "pwa-512.png", sizes: "512x512", type: "image/png", purpose: "maskable any" }
         ]
       }
     })
