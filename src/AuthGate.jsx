@@ -57,7 +57,7 @@ export default function AuthGate() {
     }
   });
 
-  // 0) hard fail early if env is missing (prevents silent "undefined" chaos)
+  // hard fail early if env is missing (prevents silent "undefined" chaos)
   const envOk = Boolean(SUPA_URL && SUPA_KEY);
 
   // 1) session tracking
@@ -66,6 +66,7 @@ export default function AuthGate() {
 
     client.auth.getSession().then(({ data }) => setSession(data?.session || null));
     const { data: sub } = client.auth.onAuthStateChange((_evt, s) => setSession(s || null));
+
     return () => {
       try {
         sub?.subscription?.unsubscribe?.();
@@ -102,6 +103,7 @@ export default function AuthGate() {
       setMemberships(mem);
 
       const ids = mem.map((x) => x.society_id).filter(Boolean);
+
       if (!ids.length) {
         setSocieties([]);
         setTenantLoading(false);
@@ -131,6 +133,7 @@ export default function AuthGate() {
     }
 
     loadTenant();
+
     return () => {
       cancelled = true;
       setTenantLoading(false);
@@ -144,19 +147,6 @@ export default function AuthGate() {
       if (activeSocietyId) localStorage.setItem(LS_ACTIVE_SOCIETY, activeSocietyId);
     } catch {}
   }, [activeSocietyId]);
-
-  // 4) keep globals in sync (do this in an effect, not during render)
-  React.useEffect(() => {
-    if (!activeSocietyId) return;
-
-    const activeSoc = (societies || []).find((s) => String(s.id) === String(activeSocietyId));
-
-    window.__activeSocietyId = String(activeSocietyId);
-    window.__activeSocietyName = activeSoc?.name || "";
-    window.__activeSocietySlug = activeSoc?.slug || "";
-    window.__activeSocietyRole =
-      memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
-  }, [activeSocietyId, societies, memberships]);
 
   async function sendMagicLink(e) {
     e.preventDefault();
@@ -267,6 +257,24 @@ export default function AuthGate() {
     );
   }
 
+  // IMPORTANT:
+  // Don’t show “no societies” while we’re still fetching memberships.
+  // Otherwise you’ll flash the warning and/or get stuck in the wrong UI state.
+  if (tenantLoading) {
+    return (
+      <CenterCard>
+        <div className="text-sm text-neutral-600">Loading…</div>
+        {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
+        <button
+          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={signOut}
+        >
+          Sign out
+        </button>
+      </CenterCard>
+    );
+  }
+
   // signed in but no access
   if (Array.isArray(memberships) && memberships.length === 0) {
     return (
@@ -290,11 +298,11 @@ export default function AuthGate() {
     );
   }
 
-  // Block App render until we have a society
-  if (tenantLoading || !activeSocietyId) {
+  // Block App render until we have a society id
+  if (!activeSocietyId) {
     return (
       <CenterCard>
-        <div className="text-sm text-neutral-600">Loading society…</div>
+        <div className="text-sm text-neutral-600">Selecting society…</div>
         {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
         <button
           className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
@@ -311,6 +319,16 @@ export default function AuthGate() {
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
+  const activeSoc = options.find((s) => String(s.id) === String(activeSocietyId));
+
+  // Set globals synchronously BEFORE App renders (prevents 400s like eq('society_id', ''))
+  window.__activeSocietyId = String(activeSocietyId);
+  window.__activeSocietyName = activeSoc?.name || "";
+  window.__activeSocietySlug = activeSoc?.slug || "";
+  window.__activeSocietyRole =
+    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
+
+  // IMPORTANT: no hooks down here (prevents React #310)
   const AppLazy = React.lazy(() => import("./App.jsx"));
 
   return (
