@@ -32,41 +32,78 @@ var formatGrossVsPar = function (n) {
 };
 
 // =========================
-// LEAGUE ROUTE + BRANDING (module-scope)
-// Ensures all views/components can access league title and bucket without ReferenceErrors.
-// Supports both "#/winter-league" and "#winter-league" style hashes.
+// MULTI-TENANT BRANDING + STORAGE (module-scope)
+// Derive league/society identity from AuthGate globals (window.__activeSociety*)
+// IMPORTANT: these are *mutable* so that switching societies in-session works.
 // =========================
-function getLeagueSlug() {
+function _readWin(key, fallback = "") {
   try {
-    const h = (typeof window !== "undefined" ? (window.location.hash || "") : "").replace(/^#\/?/, "");
-    if (h) return (h.split("/")[0] || "den-society").trim();
-    const parts = (typeof window !== "undefined" ? window.location.pathname : "").split("/").filter(Boolean);
-    // GH Pages base path: /den-society-vite/<slug>
-    return (parts[1] || parts[0] || "den-society").trim();
+    return (typeof window !== "undefined" && window[key] != null) ? String(window[key]) : fallback;
   } catch (e) {
-    return "den-society";
+    return fallback;
   }
 }
 
-const LEAGUE_SLUG = getLeagueSlug();
-const IS_WINTER_LEAGUE = LEAGUE_SLUG === "winter-league";
+// Active tenant (mutable globals)
+let ACTIVE_SOCIETY_ID = _readWin("__activeSocietyId", "");
+let ACTIVE_SOCIETY_NAME = _readWin("__activeSocietyName", "");
+let ACTIVE_SOCIETY_SLUG = _readWin("__activeSocietySlug", "");
 
-// Display branding (titles)
-const LEAGUE_TITLE = IS_WINTER_LEAGUE ? "Wednesday League" : "Den Society League";
-const LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
-const LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
+// Storage bucket mapping (keep your existing buckets, but drive it from society slug, not URL hash)
+let BUCKET = (ACTIVE_SOCIETY_SLUG === "winter-league") ? "winter_league" : "den-events";
 
-// Storage bucket per league (separate buckets)
-const BUCKET = IS_WINTER_LEAGUE ? "winter_league" : "den-events";
+// Competition mode (used by seasons/leaderboards)
+let COMPETITION = (ACTIVE_SOCIETY_SLUG === "winter-league") ? "winter" : "season";
 
-// Default competition per league (used by seasons table + leaderboards)
-const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
+// Storage prefix for files inside the bucket. Multi-tenant layout: society/<society_id>/events/...
+let SOCIETY_ID = ACTIVE_SOCIETY_ID;
+let SOC_PREFIX = SOCIETY_ID ? `society/${SOCIETY_ID}` : "";
+let PREFIX = SOC_PREFIX ? `${SOC_PREFIX}/events` : "events";
 
-// Storage prefix for CSVs inside bucket.
-const SOCIETY_ID = (typeof window !== "undefined" && window.__activeSocietyId) ? String(window.__activeSocietyId) : "";
-const SOC_PREFIX = SOCIETY_ID ? `society/${SOCIETY_ID}` : "";
-// Storage prefix for CSVs inside bucket. In multi-tenant mode, files live under society/<society_id>/events
-const PREFIX = SOC_PREFIX ? `${SOC_PREFIX}/events` : "events";
+// Admin player visibility file path
+let ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : "admin/player_visibility.json";
+
+// Branding (mutable)
+let LEAGUE_TITLE = ACTIVE_SOCIETY_NAME || "Den Society League";
+let LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
+let LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
+
+function syncTenantGlobals() {
+  ACTIVE_SOCIETY_ID = _readWin("__activeSocietyId", "");
+  ACTIVE_SOCIETY_NAME = _readWin("__activeSocietyName", "");
+  ACTIVE_SOCIETY_SLUG = _readWin("__activeSocietySlug", "");
+
+  BUCKET = (ACTIVE_SOCIETY_SLUG === "winter-league") ? "winter_league" : "den-events";
+  COMPETITION = (ACTIVE_SOCIETY_SLUG === "winter-league") ? "winter" : "season";
+
+  SOCIETY_ID = ACTIVE_SOCIETY_ID;
+  SOC_PREFIX = SOCIETY_ID ? `society/${SOCIETY_ID}` : "";
+  PREFIX = SOC_PREFIX ? `${SOC_PREFIX}/events` : "events";
+  ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : "admin/player_visibility.json";
+
+  // Update branding too
+  LEAGUE_TITLE = ACTIVE_SOCIETY_NAME || "Den Society League";
+  LEAGUE_APP_TITLE = `${LEAGUE_TITLE} — Golfer’s Guide`;
+  LEAGUE_HEADER_TITLE = `${LEAGUE_TITLE} — Ultimate Edition`;
+
+  try {
+    if (typeof window !== "undefined") {
+      window.__tenant = {
+        societyId: SOCIETY_ID,
+        societyName: ACTIVE_SOCIETY_NAME,
+        societySlug: ACTIVE_SOCIETY_SLUG,
+        bucket: BUCKET,
+        competition: COMPETITION,
+        prefix: PREFIX,
+      };
+    }
+  } catch (e) {}
+}
+
+// initialise once on module load
+syncTenantGlobals();
+
+// Branding (titles)
 
 try {
   if (typeof window !== "undefined") {
@@ -12245,22 +12282,11 @@ const [user, setUser] = useState(null);
 
 const STANDINGS_TABLE = "standings";
 
-// Default competition per league (used by seasons table + leaderboards)
-const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
+// Ensure the latest society selection is reflected in PREFIX / BUCKET / COMPETITION
+syncTenantGlobals();
 
-// Storage prefix for CSVs inside bucket.
-const SOCIETY_ID = (typeof window !== "undefined" && window.__activeSocietyId) ? String(window.__activeSocietyId) : "";
-const SOC_PREFIX = SOCIETY_ID ? `society/${SOCIETY_ID}` : "";
-// Storage prefix for CSVs inside bucket. In multi-tenant mode, files live under society/<society_id>/events
-const PREFIX = SOC_PREFIX ? `${SOC_PREFIX}/events` : "events";
-
-// Admin player visibility (hide / re-include players)
-const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
-const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWORD)
-  ? String(window.DEN_ADMIN_PASSWORD)
-  : "Den Society League";
-const VIS_LS_KEY = "den_hidden_players_v1";   // changed (optional but recommended)
-const ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : "admin/player_visibility.json";
+// NOTE: SOCIETY_ID / PREFIX / BUCKET / COMPETITION / ADMIN_VIS_PATH are module-scope *mutable* vars
+// kept in sync via syncTenantGlobals().
 
 
 
@@ -13478,6 +13504,53 @@ setSeasonRounds(rounds);
 
         const [startHcapMode, setStartHcapMode] = useState("raw");
         const [nextHcapMode, setNextHcapMode] = useState("den");
+
+// Watch for society changes pushed by AuthGate (window.__activeSocietyId / __activeSocietySlug / __activeSocietyName).
+// We poll because App.jsx is a legacy single-file app and we want a minimal, safe retrofit.
+const [tenantKey, setTenantKey] = useState(() => {
+  try {
+    const id = (typeof window !== "undefined" && window.__activeSocietyId) ? String(window.__activeSocietyId) : "";
+    const slug = (typeof window !== "undefined" && window.__activeSocietySlug) ? String(window.__activeSocietySlug) : "";
+    return `${id}|${slug}`;
+  } catch (e) {
+    return "";
+  }
+});
+
+useEffect(() => {
+  let prev = tenantKey;
+  const t = setInterval(() => {
+    try {
+      const id = (typeof window !== "undefined" && window.__activeSocietyId) ? String(window.__activeSocietyId) : "";
+      const slug = (typeof window !== "undefined" && window.__activeSocietySlug) ? String(window.__activeSocietySlug) : "";
+      const next = `${id}|${slug}`;
+      if (next && next !== prev) {
+        prev = next;
+        setTenantKey(next);
+      }
+    } catch (e) {}
+  }, 400);
+  return () => clearInterval(t);
+}, []);
+
+// When tenant changes, resync globals and reload tenant-scoped data.
+useEffect(() => {
+  syncTenantGlobals();
+  if (!client) return;
+
+  (async () => {
+    try {
+      // Re-run the key tenant-dependent fetches
+      await refreshShared(client);
+      await fetchSeasons(client);
+      await fetchSeason(client);
+      await fetchAvailableCourses(client);
+      await fetchPlayerVisibility(client);
+    } catch (e) {
+      // keep UI alive even if one fetch fails
+    }
+  })();
+}, [tenantKey, client]);
 
         useEffect(() => {
           let cancelled = false;
