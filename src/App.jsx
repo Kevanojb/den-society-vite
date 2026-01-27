@@ -434,7 +434,7 @@ function __filterSeries(series){
           // Otherwise, map the round date into a season using seasonsDef date ranges (same as Players Progress)
           const ms = Number.isFinite(Number(r?.dateMs)) ? Number(r.dateMs)
             : (Number.isFinite(Number(r?.parsed?.dateMs)) ? Number(r.parsed.dateMs)
-            : (r?.date ? _coerceDateMs(r.date) : NaN));
+            : (r?.date ? Date.parse(r.date) : NaN));
 
           if (Number.isFinite(ms)) {
             try {
@@ -1949,43 +1949,10 @@ function readStablefordPerHole(row) {
           };
         }) : [];
 
-        
-        // --- Players: parse Name/Hdcp + (if present) Gender/Tee columns ---
-        const normGender = (g) => {
-          const v = String(g || "").trim().toLowerCase();
-          if (!v) return "";
-          if (v === "m" || v === "male" || v === "man" || v === "men" || v === "gents" || v === "gent") return "M";
-          if (v === "f" || v === "female" || v === "woman" || v === "women" || v === "ladies" || v === "lady") return "F";
-          return "";
-        };
-
-        const findColIdx = (row, candidates) => {
-          const cells = (row || []).map((x) => String(x || "").trim().toLowerCase());
-          for (const c of candidates) {
-            const idx = cells.findIndex((t) => t === c || t.replace(/\s+/g, "") === c.replace(/\s+/g, ""));
-            if (idx >= 0) return idx;
-          }
-          return -1;
-        };
-
         let playerHeaderRow = -1;
-        let idxName = 0, idxHdcp = 1, idxGender = -1, idxTee = -1;
-
         for (let i = 0; i < lines.length; i++) {
-          const row = lines[i];
-          if (!row || !row.length) continue;
-
-          const nameIdx = findColIdx(row, ["name", "player", "player name", "playername"]);
-          const hdcpIdx = findColIdx(row, ["hdcp", "handicap", "hcp"]);
-          if (nameIdx >= 0 && hdcpIdx >= 0) {
-            playerHeaderRow = i;
-            idxName = nameIdx;
-            idxHdcp = hdcpIdx;
-
-            // Optional columns (won't exist on older exports)
-            idxGender = findColIdx(row, ["gender", "sex"]);
-            idxTee = findColIdx(row, ["tee", "teelabel", "tee label", "tee name", "teename"]);
-            break;
+          if ((lines[i][0] || "") === "Name" && (lines[i][1] || "") === "Hdcp") {
+            playerHeaderRow = i; break;
           }
         }
 
@@ -1994,29 +1961,14 @@ function readStablefordPerHole(row) {
           for (let i = playerHeaderRow + 1; i < lines.length; i++) {
             const row = lines[i];
             if (!row) break;
-
-            const name = (row[idxName] || "").trim();
+            const name = (row[0] || "").trim();
             if (!name) break;
             if (isTeamLike(name) || /^player$/i.test(name)) continue;
-
-            const hcap = parseFloat(String(row[idxHdcp] || "").trim());
-            if (Number.isNaN(hcap)) continue;
-
-            const g = idxGender >= 0 ? normGender(row[idxGender]) : "";
-            const tee = idxTee >= 0 ? String(row[idxTee] || "").trim() : "";
-
-            // Defaults preserve old behaviour, but allow explicit CSV fields to override
-            players.push({
-              name,
-              handicap: hcap,
-              gender: g || "M",
-              teeLabel: tee || ""
-            });
+            const hcap = parseFloat((row[1] || "").trim());
+            if (!Number.isNaN(hcap)) players.push({ name, handicap: hcap, gender: "M", teeLabel: "" });
           }
         }
 
-        // --- Fallback heuristic: if export didn't include Gender/Tee in the player block ---
-        // Try to infer tee labels and genders from anywhere in the file (legacy exports).
         const genderMap = {};
         const teeLabelMap = {};
         const looksLikeTeeLabel = (s) => {
@@ -2033,32 +1985,21 @@ function readStablefordPerHole(row) {
           if (!row) continue;
           const nm = (row[0] || "").trim();
           if (!nm) continue;
+          const col1 = (row[1] || "").trim();
+          if (!col1) continue;
+          const teeLower = col1.toLowerCase();
 
-          // Check a few early columns (exports vary)
-          for (let c = 1; c <= 4; c++) {
-            const cell = (row[c] || "").trim();
-            if (!cell) continue;
-            if (looksLikeTeeLabel(cell) && !teeLabelMap[nm]) teeLabelMap[nm] = cell;
-            const cellLower = cell.toLowerCase();
-            if (/women|ladies/.test(cellLower)) genderMap[nm] = "F";
-          }
-          if (genderMap[nm] == null) genderMap[nm] = "M";
+          // Only capture tee labels from the CSV (not numeric leaderboard columns)
+          if (looksLikeTeeLabel(col1)) teeLabelMap[nm] = col1;
+          if (/women|ladies|red tee|redtees?/.test(teeLower)) genderMap[nm] = "F";
+          else if (genderMap[nm] == null) genderMap[nm] = "M";
         }
-
         for (const p of players) {
-          if (!p.gender && genderMap[p.name]) p.gender = genderMap[p.name];
-          if (!p.teeLabel && teeLabelMap[p.name]) p.teeLabel = teeLabelMap[p.name];
+          if (genderMap[p.name]) p.gender = genderMap[p.name];
+          if (teeLabelMap[p.name]) p.teeLabel = teeLabelMap[p.name];
         }
 
-
-        if (typeof window !== "undefined" && window.__SMART_ODDS_DEBUG) {
-          console.log("[PARSE CSV PLAYERS]", {
-            count: players.length,
-            sample: players.slice(0, 5).map(p => ({ name: p.name, handicap: p.handicap, gender: p.gender, teeLabel: p.teeLabel }))
-          });
-        }
-
-// Build a minimal tee layout when CourseLayout is missing.
+        // Build a minimal tee layout when CourseLayout is missing.
         // Uses Par + SI from the scorecard, and tee labels found inside the CSV (e.g., "66 tee").
         let teesFinal = tees;
         if ((!teesFinal || !teesFinal.length) && parsedPars && parsedPars.length === 18) {
@@ -2777,39 +2718,7 @@ function Home({
 
   return (
     <section id="player-report-top" className="content-card" style={{ padding: 14 }}>
-      
-      <style>{`
-        /* Mobile menu CTA consistency (Home screen) */
-        .hm-cta-row{ display:flex; flex-direction:column; gap:10px; align-items:stretch; margin-top:12px; }
-        .hm-cta{ width:100%; justify-content:center; }
-        .hm-stats{ font-size:12px; line-height:1.35; opacity:.92; }
-
-        /* Make the smaller card action buttons behave like the main CTA on mobile */
-        .hm-card-action{ display:flex; align-items:center; gap:10px; }
-        .hm-linkbtn{ display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; }
-        @media (max-width: 640px){
-          .hm-cta-row{ gap:12px; }
-          .hm-cta{ width:100%; }
-          .hm-card-inner{ display:flex; flex-direction:column; gap:12px; }
-          .hm-card-action{ width:100%; }
-          .hm-linkbtn{
-            width:100%;
-            padding:14px 16px;
-            border-radius:18px;
-            font-weight:900;
-            letter-spacing:-0.01em;
-            background: linear-gradient(180deg, rgba(255,212,75,1) 0%, rgba(245,166,35,1) 100%);
-            color: rgba(23,17,0,0.96);
-            box-shadow: 0 10px 24px rgba(0,0,0,0.18);
-          }
-          .hm-pill{ display:none; }
-        }
-        @media (min-width: 641px){
-          .hm-cta-row{ flex-direction:row; align-items:center; justify-content:space-between; gap:12px; }
-          .hm-cta{ width:auto; }
-        }
-      `}</style>
-<div className="hm-stage">
+      <div className="hm-stage">
         <div className="hm-grid">
 
           {/* HERO */}
@@ -2826,12 +2735,11 @@ function Home({
 
 
                 <div className="hm-cta-row">
+                  <div className="hm-stats">{statsText}</div>
                   <button className="hm-cta" onClick={() => setView("past")}>
                     <span className="hm-arrow">→</span>
                     <span>Enter Game Explorer</span>
                   </button>
-                  <div className="hm-stats">{statsText}</div>
-                  
                 </div>
 
 
@@ -3189,38 +3097,7 @@ function PastEvents({ sharedGroups, loadShared, setView }) {
 
   // Course photo overrides (you can expand this later by pulling URLs from Supabase)
   // Course photo URLs fetched from Supabase (keeps this HTML file small).
-  const photoCacheRef = React.useRef(new Map());
-
-  const [photoReady, setPhotoReady] = React.useState(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadAllPhotos() {
-      const slugs = new Set();
-
-      sharedGroups.forEach(group => {
-        group.events.forEach(item => {
-          const course = (item.courseName || item.name || "").replace(/\.csv$/i, "");
-          const slug = _normSlugFromCourseName(course);
-          if (slug) slugs.add(slug);
-        });
-      });
-
-      for (const slug of slugs) {
-        if (!photoCacheRef.current.has(slug)) {
-          await _getPhotoUrlsForSlug(slug);
-        }
-      }
-
-      if (!cancelled) setPhotoReady(true);
-    }
-
-    loadAllPhotos();
-    return () => { cancelled = true; };
-  }, [sharedGroups]);
-
- // slug -> [urls]
+  const photoCacheRef = React.useRef(new Map()); // slug -> [urls]
   const inflightRef = React.useRef(new Map());   // slug -> Promise
 
   function _normSlugFromCourseName(raw) {
@@ -3482,7 +3359,7 @@ function PlayerScorecardView({ computed, courseTees, setView }) {
 }
 
    // --- EVENT SCREEN (WITH CALCULATOR) ---
-   function EventScreen({ computed, setView, courseSlope, setCourseSlope, courseRating, setCourseRating, startHcapMode, setStartHcapMode, nextHcapMode, setNextHcapMode, seasonRoundsFiltered, seasonRoundsAll, seasonModelAll }) {
+   function EventScreen({ computed, setView, courseSlope, setCourseSlope, courseRating, setCourseRating, startHcapMode, setStartHcapMode, nextHcapMode, setNextHcapMode , seasonRoundsFiltered}) {
           
 
           const [showModelInternals, setShowModelInternals] = useState(false);
@@ -3490,8 +3367,7 @@ function PlayerScorecardView({ computed, courseTees, setView }) {
           // ---- Next Event Winner Odds (Deterministic Monte Carlo, Stableford points) ----
           const winnerOdds = useMemo(() => {
             const currentRows = (Array.isArray(computed) ? computed : []).filter(r => r && r.name);
-            // season history is derived below (prefer seasonModelAll; fall back to seasonRounds*)
-            // NOTE: odds use full season history (seasonRoundsAll) to avoid tiny sample sizes; filters only affect on-screen leaderboard.
+            const seasonArr = Array.isArray(seasonRoundsFiltered) ? seasonRoundsFiltered : [];
             // League roster = anyone who has appeared in season rounds, plus anyone in the current round
             const byKeyCurrent = new Map();
             currentRows.forEach(r => {
@@ -3500,130 +3376,27 @@ function PlayerScorecardView({ computed, courseTees, setView }) {
             });
             const leagueKeys = new Set();
 
-// Flatten season history into per-player history rows
+// Flatten season rounds into per-player history rows
 const seasonPlayerRows = [];
-const roundStats = []; // per-round field averages (for course/difficulty normalization)
+seasonArr.forEach(sr => {
+  const parsed = sr && sr.parsed ? sr.parsed : sr; // tolerate already-parsed shapes
+  const players = (parsed && Array.isArray(parsed.players)) ? parsed.players : [];
+  const dateMs = Number.isFinite(sr?.dateMs) ? sr.dateMs : (Number.isFinite(parsed?.dateMs) ? parsed.dateMs : null);
 
-const _pushPts = (obj) => {
-  // stableford points (try common keys; fall back to summing per-hole points)
-  let pts = Number(obj?.pts ?? obj?.points ?? obj?.stableford ?? obj?.sf ?? obj?.totalPoints ?? obj?.netPoints);
-  if (!Number.isFinite(pts) && Array.isArray(obj?.perHole)) {
-    try { pts = obj.perHole.reduce((a,b)=>a + (Number(b)||0), 0); } catch (e) { /* ignore */ }
-  }
-  return pts;
-};
-
-// Prefer seasonModelAll (same dataset Player Progress is using). Fall back to raw season rounds if needed.
-if (seasonModelAll && Array.isArray(seasonModelAll.players) && seasonModelAll.players.length) {
-  // Build a per-round file bucket so we can compute round and group averages
-  const byFile = new Map(); // fileKey -> { pts: [], byGroup: Map(groupKey -> pts[]) , dateMs }
-  const entries = []; // flat { k, name, pts, hi, dateMs, gender, teeLabel, groupKey, file }
-
-  for (const p of (seasonModelAll.players || [])) {
-    const nm = String(p?.name || "").trim();
+  players.forEach(p => {
+    const nm = String(p?.name || p?.player || p?.playerName || "").trim();
     const k = normalizeName(nm);
-    if (!k) continue;
+    if (!k) return;
 
-    const series = Array.isArray(p?.series) ? p.series : [];
-    for (const s of series) {
-      const pts = _pushPts(s);
-      if (!Number.isFinite(pts)) continue;
+    // stableford points (try common keys)
+    const pts = Number(p?.pts ?? p?.points ?? p?.stableford ?? p?.sf ?? p?.totalPoints ?? p?.netPoints);
+    // handicap at the time (exact HI)
+    const hi = Number(p?.startExact ?? p?.index ?? p?.hi ?? p?.handicap ?? p?.exact ?? p?.hiExact);
 
-      const dateMs = Number.isFinite(Number(s?.dateMs)) ? Number(s.dateMs) : null;
-      const file = String(s?.file ?? "");
-      const teeLabel = String(s?.teeLabel ?? s?.tee ?? s?.tee_name ?? s?.teeName ?? "").toLowerCase().trim();
-      const genderRaw = String(s?.gender ?? s?.sex ?? p?.gender ?? p?.sex ?? "").toUpperCase();
-      const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
-      const groupKey = teeLabel || gender;
-
-      const hi = Number(s?.hi ?? s?.startExact ?? s?.index ?? s?.handicap ?? s?.exact ?? p?.hi ?? p?.startExact);
-
-      entries.push({ k, name: nm, pts, hi, dateMs, gender, teeLabel, groupKey, file });
-      leagueKeys.add(k);
-
-      if (file) {
-        if (!byFile.has(file)) byFile.set(file, { pts: [], byGroup: new Map(), dateMs });
-        const b = byFile.get(file);
-        b.pts.push(pts);
-        if (Number.isFinite(dateMs) && !Number.isFinite(Number(b.dateMs))) b.dateMs = dateMs;
-        if (!b.byGroup.has(groupKey)) b.byGroup.set(groupKey, []);
-        b.byGroup.get(groupKey).push(pts);
-      }
-    }
-  }
-
-  // Compute per-round averages
-  const roundAvgByFile = new Map();
-  const groupAvgByFileGroup = new Map(); // file|groupKey -> avg
-  for (const [file, b] of byFile.entries()) {
-    const ra = b.pts.length ? (b.pts.reduce((a,c)=>a+c,0)/b.pts.length) : 36;
-    roundAvgByFile.set(file, ra);
-    roundStats.push({ dateMs: Number.isFinite(Number(b.dateMs)) ? Number(b.dateMs) : null, roundAvg: ra, n: b.pts.length, file });
-
-    for (const [gk, arr] of b.byGroup.entries()) {
-      const ga = arr.length ? (arr.reduce((a,c)=>a+c,0)/arr.length) : ra;
-      groupAvgByFileGroup.set(file + "|" + gk, ga);
-    }
-  }
-
-  // Attach round/group averages and push into seasonPlayerRows
-  for (const e of entries) {
-    const ra = e.file ? (roundAvgByFile.get(e.file) ?? 36) : 36;
-    const ga = e.file ? (groupAvgByFileGroup.get(e.file + "|" + e.groupKey) ?? ra) : ra;
-    seasonPlayerRows.push({ ...e, roundAvg: ra, groupAvg: ga });
-  }
-
-} else {
-  // Fallback: derive from raw season rounds array
-  const seasonArr = Array.isArray(seasonRoundsAll) ? seasonRoundsAll : (Array.isArray(seasonRoundsFiltered) ? seasonRoundsFiltered : []);
-  seasonArr.forEach(sr => {
-    const parsed = sr && sr.parsed ? sr.parsed : sr; // tolerate already-parsed shapes
-    const players = (parsed && Array.isArray(parsed.players)) ? parsed.players : [];
-    const dateMs = Number.isFinite(sr?.dateMs) ? sr.dateMs : (Number.isFinite(parsed?.dateMs) ? parsed.dateMs : null);
-    const file = String(sr?.file ?? parsed?.file ?? "");
-
-    const ptsList = players.map(p => _pushPts(p)).filter(Number.isFinite);
-    const roundAvg = ptsList.length ? (ptsList.reduce((a,b)=>a+b,0) / ptsList.length) : 36;
-
-    const groupSums = new Map();
-    const groupCounts = new Map();
-    for (const pp of players) {
-      const gPts = _pushPts(pp);
-      if (!Number.isFinite(gPts)) continue;
-      const teeLabel = String(pp?.teeLabel ?? pp?.tee ?? pp?.tee_name ?? pp?.teeName ?? "").toLowerCase().trim();
-      const genderRaw = String(pp?.gender ?? pp?.sex ?? "").toUpperCase();
-      const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
-      const groupKey = teeLabel || gender;
-      groupSums.set(groupKey, (groupSums.get(groupKey) || 0) + gPts);
-      groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
-    }
-    const groupAvgByKey = new Map();
-    for (const [k, sum] of groupSums.entries()) {
-      const c = groupCounts.get(k) || 1;
-      groupAvgByKey.set(k, sum / c);
-    }
-
-    if (Number.isFinite(dateMs)) roundStats.push({ dateMs, roundAvg, n: ptsList.length, file });
-
-    players.forEach(p => {
-      const nm = String(p?.name || p?.player || p?.playerName || "").trim();
-      const k = normalizeName(nm);
-      if (!k) return;
-
-      const pts = _pushPts(p);
-      const hi = Number(p?.startExact ?? p?.index ?? p?.hi ?? p?.handicap ?? p?.exact ?? p?.hiExact);
-
-      const teeLabel = String(p?.teeLabel ?? p?.tee ?? p?.tee_name ?? p?.teeName ?? "").toLowerCase().trim();
-      const genderRaw = String(p?.gender ?? p?.sex ?? "").toUpperCase();
-      const gender = (genderRaw === "F" || genderRaw === "FEMALE" || genderRaw === "W" || genderRaw === "WOMEN") ? "F" : "M";
-      const groupKey = teeLabel || gender;
-      const groupAvg = groupAvgByKey.get(groupKey) ?? roundAvg;
-
-      seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs, roundAvg, gender, teeLabel, groupKey, groupAvg, file });
-      leagueKeys.add(k);
-    });
+    seasonPlayerRows.push({ k, name: nm, pts, hi, dateMs });
+    leagueKeys.add(k);
   });
-}
+});
 
 // Ensure current-round players are included even if season is empty
 byKeyCurrent.forEach((_, k) => leagueKeys.add(k));
@@ -3643,135 +3416,34 @@ for (const arr of histByKey.values()) {
   });
 }
 
-// ---- League baseline (captures "course/day difficulty") ----
-const _rounds = roundStats
-  .filter(r => Number.isFinite(r?.dateMs) && Number.isFinite(r?.roundAvg))
-  .sort((a,b)=>a.dateMs-b.dateMs)
-  .slice(-20);
-
-// exponentially weighted mean/variance for round average points
-const baseDecay = 0.9;
-let bW = 0, bS = 0;
-for (let i=0;i<_rounds.length;i++){
-  const age = (_rounds.length-1)-i;
-  const w = Math.pow(baseDecay, age);
-  bW += w;
-  bS += w * _rounds[i].roundAvg;
-}
-const leagueBaseMu = (bW>0 ? (bS/bW) : 36);
-
-let bVarW = 0, bVarS = 0;
-for (let i=0;i<_rounds.length;i++){
-  const age = (_rounds.length-1)-i;
-  const w = Math.pow(baseDecay, age);
-  bVarW += w;
-  bVarS += w * Math.pow(_rounds[i].roundAvg - leagueBaseMu, 2);
-}
-// baseline sigma: round-to-round swing in field scoring; keep it in a sensible band
-const leagueBaseSigma = Math.max(0.8, Math.min(4.0, (bVarW>0 ? Math.sqrt(bVarS/bVarW) : 1.6)));
-
-// League-wide relationship between Handicap Index (HI) and Stableford performance vs field.
-// We learn this from season history so we can shrink player-specific estimates toward something sane.
-let leagueHiSlope = 0.75; // default: ~0.75 Stableford pts per 1 HI (relative to field)
-try {
-  let nLS = 0;
-  let meanX = 0, meanY = 0;
-  // First pass: means
-  for (let i=0;i<seasonPlayerRows.length;i++){
-    const r = seasonPlayerRows[i];
-    const x = Number(r.hi);
-    const y = Number(r.pts) - Number(r.roundAvg);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    nLS += 1;
-    meanX += x;
-    meanY += y;
-  }
-  if (nLS >= 20) {
-    meanX /= nLS; meanY /= nLS;
-    let sxx = 0, sxy = 0;
-    for (let i=0;i<seasonPlayerRows.length;i++){
-      const r = seasonPlayerRows[i];
-      const x = Number(r.hi);
-      const y = Number(r.pts) - Number(r.roundAvg);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      const dx = x - meanX;
-      const dy = y - meanY;
-      sxx += dx*dx;
-      sxy += dx*dy;
-    }
-    if (sxx > 1e-6) {
-      leagueHiSlope = sxy / sxx;
-      // cap to a sensible range: higher HI should generally increase points
-      leagueHiSlope = Math.max(0.0, Math.min(2.0, leagueHiSlope));
-    }
-  }
-} catch {}
-
-
-// ---- Build per-player model rows ----
 const rows = Array.from(leagueKeys).map(k => {
   const cur = byKeyCurrent.get(k);
   const hist = histByKey.get(k) || [];
 
   const name = cur ? String(cur.name || "") : (hist.length ? String(hist[hist.length-1].name || "") : "");
 
-  // residual history = player points minus that round's field average (normalizes for easy/hard rounds)
-  const resHist = hist
-    .map(h => {
-      const pts = Number(h.pts);
-      const ra = Number(h.groupAvg ?? h.roundAvg);
-      if (!Number.isFinite(pts) || !Number.isFinite(ra)) return null;
-      return { res: (pts - ra), pts, ra, dateMs: h.dateMs, hi: h.hi, groupKey: h.groupKey, gender: h.gender, teeLabel: h.teeLabel };
-    })
-    .filter(Boolean);
+  // pull up to last 12 point totals (chronological)
+  const ptsHist = hist.map(h => Number(h.pts)).filter(n => Number.isFinite(n));
+  const last12 = ptsHist.slice(-12);
 
-  const last12 = resHist.slice(-12); // chronological already
-
-  // Exponentially weighted mean of residuals (recent form matters more)
+  // exponentially weighted mean of points
   const decay = 0.85;
-  let wsum = 0, rsum = 0;
+  let wsum = 0, psum = 0;
   for (let i=0;i<last12.length;i++){
     const age = (last12.length-1)-i;
     const w = Math.pow(decay, age);
     wsum += w;
-    rsum += w * last12[i].res;
+    psum += w * last12[i];
   }
-  const rawResMu = wsum>0 ? (rsum/wsum) : 0;
+  const meanPts = wsum>0 ? (psum/wsum) : (cur ? Number(cur.pts||cur.points||cur.PTS||36) : 36);
 
-  // Small-sample shrinkage toward 0 (league-average) so newcomers don't get silly odds
-  const n = last12.length;
-  const shrink = n / (n + 6); // 0..1
-  const resMu = rawResMu * shrink;
-
-  // Weighted residual sigma (with a gentle prior)
-  let vW = 0, vS = 0;
+  // volatility from history, default 4
+  let varSum = 0, nVar = 0;
   for (let i=0;i<last12.length;i++){
-    const age = (last12.length-1)-i;
-    const w = Math.pow(decay, age);
-    vW += w;
-    vS += w * Math.pow(last12[i].res - rawResMu, 2);
+    varSum += Math.pow(last12[i]-meanPts, 2);
+    nVar++;
   }
-  const rawResSigma = (vW>0 ? Math.sqrt(vS/vW) : 3.8);
-  const resSigma = Math.max(1.2, Math.min(7.5, (rawResSigma*(0.6+0.4*shrink)) + (1-shrink)*3.0));
-
-  // Trend (points per round) from weighted linear regression on residuals
-  let formTrend = 0;
-  if (n >= 3) {
-    let sw=0, sx=0, sy=0, sxx=0, sxy=0;
-    for (let i=0;i<n;i++){
-      const age = (n-1)-i;
-      const w = Math.pow(decay, age);
-      const x = i;           // 0..n-1 (older -> smaller i)
-      const y = last12[i].res;
-      sw += w; sx += w*x; sy += w*y; sxx += w*x*x; sxy += w*x*y;
-    }
-    const denom = (sw*sxx - sx*sx);
-    if (Math.abs(denom) > 1e-9) {
-      formTrend = (sw*sxy - sx*sy)/denom; // residual points per round
-      // clamp trend to avoid silly extrapolation
-      formTrend = Math.max(-2.5, Math.min(2.5, formTrend));
-    }
-  }
+  const sigma = nVar>1 ? Math.sqrt(varSum/(nVar-1)) : 4.0;
 
   // start handicap: prefer current row's startExact, else last known from history
   const lastHist = hist.length ? hist[hist.length-1] : null;
@@ -3787,76 +3459,20 @@ const rows = Array.from(leagueKeys).map(k => {
   // For NEXT-round forecasting:
   // - In No change mode, we tee off on the current index (prevStartExact).
   // - In WHS Diff / Legacy Formula, we tee off on the computed NEXT handicap.
-  // For NEXT-round forecasting, choose which HI we tee off on.
-// UI values in this app have historically been: "same" (No Change), "den" (Legacy), "whs" (WHS diff)
-// but we also tolerate "nochange" for older builds.
-const _mode = String(nextHcapMode || "").toLowerCase();
-const noChange = (_mode === "same" || _mode === "nochange" || _mode === "no-change" || _mode === "no_change");
-const startExact = noChange ? prevStartExact : nextExactNum;
+  const startExact = (String(nextHcapMode || "").toLowerCase() === "nochange") ? prevStartExact : nextExactNum;
 
-// --- Player-specific HI→Stableford sensitivity (learned from season history) ---
-// We learn how this player's Stableford residual (pts - roundAvg) changes with HI.
-// Then we predict the residual at the HI they'll tee off on next round.
-// This captures "big cut after a spike score → less likely to spike again".
-let hiMean = prevStartExact;
-let hiSlope = leagueHiSlope; // shrink toward league estimate by default
-try {
-  let wH=0, xS=0, yS=0;
-  for (let i=0;i<last12.length;i++){
-    const age = (last12.length-1)-i;
-    const w = Math.pow(decay, age);
-    const x = Number(last12[i].hi);
-    const y = Number(last12[i].res);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    wH += w;
-    xS += w * x;
-    yS += w * y;
-  }
-  if (wH > 0) {
-    const mx = xS / wH;
-    const my = yS / wH;
-    hiMean = mx;
+  // Handicap movement used to adjust expected points (≈ 1 pt per HI stroke)
+  const deltaModelHI = nextExactNum - prevStartExact;
 
-    let sxx=0, sxy=0, nPairs=0;
-    for (let i=0;i<last12.length;i++){
-      const age = (last12.length-1)-i;
-      const w = Math.pow(decay, age);
-      const x = Number(last12[i].hi);
-      const y = Number(last12[i].res);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      const dx = x - mx;
-      const dy = y - my;
-      sxx += w * dx*dx;
-      sxy += w * dx*dy;
-      nPairs += 1;
-    }
+  // Expected points: baseline from form mean, plus HI movement, then clamp to plausible range.
+  const expPts = clamp(meanPts + deltaModelHI, 20, 54);
 
-    // Ridge to avoid blowing up with tiny HI variance (many players don't change HI much over 6 rounds)
-    const ridge = 1.25; // acts like a prior HI variance
-    const rawSlope = (sxx > 1e-6) ? (sxy / (sxx + ridge)) : leagueHiSlope;
-
-    // Shrink toward league slope for small samples
-    const shrinkSlope = nPairs / (nPairs + 4); // 0..1
-    hiSlope = (rawSlope * shrinkSlope) + (leagueHiSlope * (1 - shrinkSlope));
-
-    // cap to sane range (positive relationship)
-    hiSlope = Math.max(0.0, Math.min(2.0, hiSlope));
-  }
-} catch {}
-
-// Predict residual at the HI we tee off on next round.
-const resAtStartHI = resMu + hiSlope * (startExact - hiMean);
-
-// Expected points: league baseline + predicted residual at start HI, clamped.
-const expPts = clamp(leagueBaseMu + resAtStartHI, 18, 56);
 
   const deltaHI = nextExactNum - startExact;
 
-  // Model params for display
+  // Model params
   const formMu = expPts - 36;
-  // total uncertainty combines "day difficulty" + player volatility
-  const totalSigma = Math.sqrt((leagueBaseSigma*leagueBaseSigma) + (resSigma*resSigma));
-  const formSigma = Math.max(1.5, Math.min(9.0, totalSigma));
+  const formSigma = Math.max(1.5, Math.min(8.0, sigma));
 
   return {
     name,
@@ -3866,17 +3482,9 @@ const expPts = clamp(leagueBaseMu + resAtStartHI, 18, 56);
     expPts,
     formMu,
     formSigma,
-    formTrend,
-    // components used by the simulator
-    modelBaseMu: leagueBaseMu,
-    modelBaseSigma: leagueBaseSigma,
-                leagueHiSlope,
-    modelResMu: resAtStartHI,
-    modelResSigma: resSigma,
-    roundsUsed: n
+    roundsUsed: last12.length
   };
 }).filter(r => r && r.name);
-
 
 
             // Deterministic PRNG (seeded from current filtered data + next handicap mode)
@@ -3930,26 +3538,22 @@ const expPts = clamp(leagueBaseMu + resAtStartHI, 18, 56);
             const top3 = new Array(rows.length).fill(0);
             const top4 = new Array(rows.length).fill(0);
 
-            const baseMu = (rows[0] && Number.isFinite(Number(rows[0].modelBaseMu))) ? Number(rows[0].modelBaseMu) : 36;
-const baseSigma = (rows[0] && Number.isFinite(Number(rows[0].modelBaseSigma))) ? Number(rows[0].modelBaseSigma) : 1.6;
+            const exp = rows.map(r => {
+              const base = (Number.isFinite(Number(r.expPts)) ? Number(r.expPts) : 36);
+              const startHI = (Number.isFinite(Number(r.startExact)) ? Number(r.startExact) : 0);
+              const nextRaw = (Number.isFinite(Number(r.nextExactNum)) ? Number(r.nextExactNum) : startHI);
+              const nextHI = Math.max(0, Math.min(36, nextRaw));
+              const deltaHI = nextHI - startHI;
+              // Stableford is net: ~1 point per stroke. Apply delta directly, then clamp to plausible range.
+              const adj = base + deltaHI;
+              return Math.max(20, Math.min(50, adj));
+            });
+            const sig = rows.map(r => (Number.isFinite(Number(r.formSigma)) ? Math.max(1.0, Number(r.formSigma)) : 4.0));
 
-// Precompute per-player mean components + individual sigma
-const addMu = rows.map(r => {
-  // modelResMu is already the predicted residual at the player's start HI
-  const rm = Number.isFinite(Number(r.modelResMu)) ? Number(r.modelResMu) : 0;
-  return rm;
-});
-const indSig = rows.map(r => {
-  const s = Number.isFinite(Number(r.modelResSigma)) ? Number(r.modelResSigma) : 4.0;
-  return Math.max(1.0, Math.min(8.0, s));
-});
-for (let s = 0; s < sims; s++){
+            for (let s = 0; s < sims; s++){
               // simulate points for each player
-              // Shared "day difficulty" draw (correlates all players a bit)
-              const dayBase = baseMu + randn()*baseSigma;
-
               const simPts = rows.map((r,i) => {
-                const p = dayBase + addMu[i] + randn()*indSig[i];
+                const p = exp[i] + randn()*sig[i];
                 // clamp to plausible stableford range
                 return Math.max(0, Math.min(60, p));
               });
@@ -3986,7 +3590,7 @@ for (let s = 0; s < sims; s++){
                 winPct: w,
                 top3Pct: t3,
                 top4Pct: t4,
-                expPts: (Number.isFinite(Number(r.expPts)) ? Number(r.expPts) : Math.max(18, Math.min(56, baseMu + addMu[i]))),
+                expPts: exp[i],
                 muAdj,
                 trend: tr,
                 trendTag,
@@ -4014,59 +3618,6 @@ for (let s = 0; s < sims; s++){
               : (c4 >= 2.10 && gap >= 0.03) ? "Medium"
               : "Low";
 
-
-            // ---- DEBUG HOOK: inspect model + inputs in browser console ----
-            try {
-              const groups = Array.from(
-                new Set(seasonPlayerRows.map(r => String(r.groupKey || "").toLowerCase()).filter(Boolean))
-              ).sort();
-
-              // keep existing debug payload if already set elsewhere
-              const prev = (typeof window !== "undefined" && window.__ODDS_DEBUG && typeof window.__ODDS_DEBUG === "object")
-                ? window.__ODDS_DEBUG
-                : {};
-
-              window.__ODDS_DEBUG = {
-                ...prev,
-                ts: Date.now(),
-                seasonRoundsCount: (Array.isArray(roundStats) ? roundStats.length : 0),
-                seasonRoundDates: (() => { try { const ds = (Array.isArray(roundStats)?roundStats:[]).map(r=>Number(r?.dateMs)).filter(Number.isFinite).map(ms=>new Date(ms).toISOString().slice(0,10)); return Array.from(new Set(ds)).sort(); } catch(e){ return []; } })(),
-                seasonPlayerRowsCount: seasonPlayerRows.length,
-
-                leagueBaseMu,
-                leagueBaseSigma,
-                leagueHiSlope,
-                leagueWithinSigma: (rows && rows.length)
-                  ? Math.sqrt(rows.reduce((a,r)=>a + Math.pow(Number(r.formSigma||0),2), 0) / Math.max(1, rows.length))
-                  : null,
-                groups,
-                // raw per-player per-round rows (unfiltered season history)
-                sample: seasonPlayerRows.slice(-120).map(r => ({
-                  name: r.name,
-                  pts: r.pts,
-                  roundAvg: r.roundAvg,
-                  roundStd: null,
-                  teeLabel: r.teeLabel,
-                  dateMs: r.dateMs,
-                  gender: r.gender,
-                  groupKey: r.groupKey,
-                  groupAvg: r.groupAvg,
-                  hi: r.hi,
-                })),
-                // model output snapshot (what the odds table should be showing)
-                model: {
-                  sims,
-                  confidence,
-                  c4,
-                  gap,
-                  rows: rowsByWin.slice(0, 60),
-                  top4: rowsByTop4.slice(0, 4),
-                }
-              };
-            } catch (e) {
-              try { window.__ODDS_DEBUG = { error: String(e) }; } catch {}
-            }
-            // ---- END DEBUG ----
             return {
               sims,
               rows: rowsByWin,
@@ -4075,7 +3626,7 @@ for (let s = 0; s < sims; s++){
               c4,
               gap,
             };
-          }, [computed, nextHcapMode, seasonRoundsAll, seasonRoundsFiltered]);
+          }, [computed, nextHcapMode, seasonRoundsFiltered]);
 return (
             <section className="content-card p-4 md:p-6">
               <Breadcrumbs items={[{ label: "Round Leaderboard" }]} />
@@ -12191,66 +11742,27 @@ const [user, setUser] = useState(null);
         const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
         const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-        // Supabase config (Society Golf) — route-aware (summer vs winter league)
-// Supports BOTH hash styles:
-//   - #/winter-league   (GitHub Pages + HashRouter style)
-//   - #winter-league    (legacy)
-// Also supports pathname style:
-//   /den-society-vite/winter-league
-function getRouteSlug() {
+        // Supabase config (multi-league via URL route)
+function getLeagueSlug() {
   const h = (window.location.hash || "").replace(/^#\/?/, "");
-  if (h) return (h.split("/")[0] || "den-society");
+  if (h) return h.split("/")[0];
   const parts = window.location.pathname.split("/").filter(Boolean);
-  // GitHub Pages base path: /den-society-vite/<slug>
+  // GH Pages base path: /den-society-vite/<slug>
   return parts[1] || parts[0] || "den-society";
 }
-const ROUTE_SLUG = getRouteSlug();
+const LEAGUE_SLUG = getLeagueSlug();
 
-// Buckets (separate buckets per league)
-const BUCKET = ROUTE_SLUG === "winter-league" ? "winter-league" : "den-events";
-const BUCKET_FALLBACK = ROUTE_SLUG === "winter-league" ? "winter_league" : null;
+// Storage bucket per league (current setup: separate buckets)
+const BUCKET = LEAGUE_SLUG === "winter-league" ? "winter_league" : "den-events";
+
 const STANDINGS_TABLE = "standings";
 
-// Default competition per league route (still overrideable elsewhere if needed)
-const COMPETITION = ROUTE_SLUG === "winter-league" ? "winter" : "season";
+// Default competition per league (still used by the existing tables)
+const COMPETITION = LEAGUE_SLUG === "winter-league" ? "winter" : "season";
 
-// Storage prefix inside the bucket (empty = bucket root)
-const PREFIX = "";
-
-
-// Storage helpers: try primary bucket, then fallback (keeps existing winter_league deployments working)
-async function _storageList(client, path, opts) {
-  let res = await _storageList(client, path, opts);
-  if (res?.error && BUCKET_FALLBACK) {
-    const res2 = await client.storage.from(BUCKET_FALLBACK).list(path, opts);
-    if (!res2?.error) return res2;
-  }
-  return res;
-}
-async function _storageDownload(client, filePath) {
-  let res = await _storageDownload(client, filePath);
-  if (res?.error && BUCKET_FALLBACK) {
-    const res2 = await client.storage.from(BUCKET_FALLBACK).download(filePath);
-    if (!res2?.error) return res2;
-  }
-  return res;
-}
-async function _storageUpload(client, filePath, file, opts) {
-  let res = await _storageUpload(client, filePath, file, opts);
-  if (res?.error && BUCKET_FALLBACK) {
-    const res2 = await client.storage.from(BUCKET_FALLBACK).upload(filePath, file, opts);
-    if (!res2?.error) return res2;
-  }
-  return res;
-}
-async function _storageRemove(client, paths) {
-  let res = await _storageRemove(client, paths);
-  if (res?.error && BUCKET_FALLBACK) {
-    const res2 = await client.storage.from(BUCKET_FALLBACK).remove(paths);
-    if (!res2?.error) return res2;
-  }
-  return res;
-}
+// Storage prefix for CSVs inside bucket.
+// Your CSVs live under an 'events' folder inside each bucket.
+const PREFIX = "events";
 
 // Admin player visibility (hide / re-include players)
 const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
@@ -12258,7 +11770,7 @@ const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWO
   ? String(window.DEN_ADMIN_PASSWORD)
   : "Den Society League";
 const VIS_LS_KEY = "den_hidden_players_v1";   // changed (optional but recommended)
-const ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : `admin/player_visibility.json`;
+const ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : "admin/player_visibility.json";
 
 
 
@@ -12344,8 +11856,8 @@ const handleAdminPassword = React.useCallback((pw) => {
           let arr = Array.isArray(roundsIn) ? roundsIn.slice() : [];
           // ensure chronological
           arr.sort((a,b)=>{
-            const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? _coerceDateMs(a.date) : Number.POSITIVE_INFINITY));
-            const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? _coerceDateMs(b.date) : Number.POSITIVE_INFINITY));
+            const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? Date.parse(a.date) : Number.POSITIVE_INFINITY));
+            const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? Date.parse(b.date) : Number.POSITIVE_INFINITY));
             if (da !== db) return da - db;
             return String(a?.file||"").localeCompare(String(b?.file||""));
           });
@@ -12356,7 +11868,7 @@ const handleAdminPassword = React.useCallback((pw) => {
             // Prefer mapping the round date into a season using the seasons table date ranges
             const ms = Number.isFinite(Number(r?.dateMs)) ? Number(r.dateMs)
               : (Number.isFinite(Number(r?.parsed?.dateMs)) ? Number(r.parsed.dateMs)
-              : (r?.date ? _coerceDateMs(r.date) : NaN));
+              : (r?.date ? Date.parse(r.date) : NaN));
             if (Number.isFinite(ms)) {
               try {
                 const mapped = seasonIdForDateMs(ms, seasonsDef);
@@ -12388,13 +11900,10 @@ const handleAdminPassword = React.useCallback((pw) => {
   // Keep an unfiltered model for admin player management (merged names, diagnostics etc.)
   const modelAll = buildSeasonPlayerModel(filtered);
   setSeasonModelAll(modelAll);
-  try { if (typeof window !== 'undefined') window.__seasonModelAll = modelAll; } catch(e) {}
 
   // Apply admin visibility filter by rebuilding the model with hidden keys excluded
   const model = buildSeasonPlayerModel(filtered, { hiddenKeys: hiddenKeySet });
   setSeasonModel(model);
-  try { if (typeof window !== 'undefined') window.__seasonModel = model; } catch(e) {}
-  try { if (typeof window !== 'undefined') window.__dslUiState = { seasonYear, seasonLimit }; } catch(e) {}
 
   if (model?.players?.length) {
     const ok = seasonPlayer && model.players.some(p => p.name === seasonPlayer);
@@ -12407,16 +11916,6 @@ const handleAdminPassword = React.useCallback((pw) => {
         const seasonRoundsFiltered = React.useMemo(() => {
           return _filterSeasonRounds(Array.isArray(seasonRounds) ? seasonRounds : [], seasonYear, seasonLimit);
         }, [seasonRounds, seasonYear, seasonLimit]);
-
-        // All rounds in the selected season (ignores seasonLimit)
-        // Used by Winner Odds so the model can use the full in-season history.
-        const seasonRoundsInSeasonAll = React.useMemo(() => {
-          return _filterSeasonRounds(
-            Array.isArray(seasonRounds) ? seasonRounds : [],
-            seasonYear,
-            "All" // IMPORTANT: no limit
-          );
-        }, [seasonRounds, seasonYear]);
 
 const [seasonLoading, setSeasonLoading] = useState(false);
         // Auto-load season rounds so Winner Odds can include all league players (from season rounds)
@@ -13097,33 +12596,6 @@ const ptsArr = series.map(x=>Number(x.pts)).filter(Number.isFinite);
 //  - "Game 1,Nov 12 2025" / "Nov 12, 2025" / "November 12 2025"
 //  - "12 Nov 2025" / "12th November 2025"
 //  - "2025-11-12" / "12-11-2025"
-
-// Robust date coercion for UK/ISO strings -> UTC midnight ms.
-// Safari's Date.parse can treat dd/mm as US or NaN, so we never rely on it for numeric dates.
-function _coerceDateMs(v) {
-  const n = Number(v);
-  if (Number.isFinite(n) && n > 0) return n;
-
-  const s = String(v ?? "").trim();
-  if (!s) return NaN;
-
-  // ISO yyyy-mm-dd (or yyyy/mm/dd or yyyy.mm.dd)
-  let m = s.match(/\b(20\d{2})[-\/\.](0?[1-9]|1[0-2])[-\/\.](0?[1-9]|[12]\d|3[01])\b/);
-  if (m) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-
-  // UK dd/mm/yyyy (or dd-mm-yyyy or dd.mm.yyyy)
-  m = s.match(/\b(0?[1-9]|[12]\d|3[01])[-\/\.](0?[1-9]|1[0-2])[-\/\.](20\d{2})\b/);
-  if (m) return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
-
-  // Fall back to native parse for month-name formats (e.g. "Nov 12 2025") and other oddities
-  const msTry = Date.parse(s);
-  if (Number.isFinite(msTry)) {
-    const d = new Date(msTry);
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  }
-  return NaN;
-}
-
 function _extractDateMsFromCsvText(csvText) {
   // Extract a playable date from the CSV contents (captain-friendly: no filename requirements).
   // Strategy:
@@ -13197,7 +12669,7 @@ function _extractDateMsFromCsvText(csvText) {
     if (labelMatch) {
       const raw = String(labelMatch[3] || "").trim();
       // Try ISO parse first
-      let msTry = _coerceDateMs(raw);
+      let msTry = Date.parse(raw);
       if (Number.isFinite(msTry)) {
         const d = new Date(msTry);
         return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -13317,7 +12789,7 @@ async function getTeesForCourseName(courseName) {
       if (seen.has(p)) continue;
       seen.add(p);
 
-      const res = await _storageList(client, p, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+      const res = await client.storage.from(BUCKET).list(p, { limit: 1000, sortBy: { column: "name", order: "asc" } });
       if (res.error) continue;
 
       for (const item of (res.data || [])) {
@@ -13354,7 +12826,7 @@ async function getTeesForCourseName(courseName) {
 
   for (const f of files) {
     try {
-      const dl = await _storageDownload(client, f.path);
+      const dl = await client.storage.from(BUCKET).download(f.path);
       if (dl.error) {
         skipped.push({ file: f.path, reason: "download" });
       } else {
@@ -13385,8 +12857,8 @@ async function getTeesForCourseName(courseName) {
 
 // Sort rounds by in-CSV date (oldest first). If a file has no detectable date, push it to the end.
 rounds.sort((a, b) => {
-  const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? _coerceDateMs(a.date) : Number.POSITIVE_INFINITY));
-  const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? _coerceDateMs(b.date) : Number.POSITIVE_INFINITY));
+  const da = Number.isFinite(Number(a?.dateMs)) ? Number(a.dateMs) : (Number.isFinite(Number(a?.parsed?.dateMs)) ? Number(a.parsed.dateMs) : (a?.date ? Date.parse(a.date) : Number.POSITIVE_INFINITY));
+  const db = Number.isFinite(Number(b?.dateMs)) ? Number(b.dateMs) : (Number.isFinite(Number(b?.parsed?.dateMs)) ? Number(b.parsed.dateMs) : (b?.date ? Date.parse(b.date) : Number.POSITIVE_INFINITY));
   if (da !== db) return da - db;
   // tie-breaker: path name (stable)
   return String(a?.file || "").localeCompare(String(b?.file || ""));
@@ -13402,8 +12874,6 @@ setSeasonRounds(rounds);
   const filteredRounds = _filterSeasonRounds(rounds, seasonYear, seasonLimit);
   const model = buildSeasonPlayerModel(filteredRounds);
   setSeasonModel(model);
-  try { if (typeof window !== 'undefined') window.__seasonModel = model; } catch(e) {}
-  try { if (typeof window !== 'undefined') window.__dslUiState = { seasonYear, seasonLimit }; } catch(e) {}
   if (!seasonPlayer && model.players.length) setSeasonPlayer(model.players[0].name);
 
   setSeasonLoading(false);
@@ -13566,7 +13036,7 @@ async function savePlayerVisibility(nextHiddenKeys) {
       updatedBy: user?.email || ""
     }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
-    const up = await _storageUpload(client, ADMIN_VIS_PATH, blob, { upsert: true, contentType: "application/json" });
+    const up = await client.storage.from(BUCKET).upload(ADMIN_VIS_PATH, blob, { upsert: true, contentType: "application/json" });
     if (up && up.error) toast("Save failed: " + up.error.message);
     else toast("Player filter saved ✓");
   } catch (e) {
@@ -13738,7 +13208,7 @@ async function savePlayerVisibility(nextHiddenKeys) {
 function seasonIdForDateMs(ms, seasonsArr) {
   try {
     const n = Number(ms);
-    const d = new Date(_coerceDateMs(ms));
+    const d = new Date(Number.isFinite(n) ? n : Date.parse(String(ms)));
     if (!Number.isFinite(d.getTime())) return null;
     const iso = d.toISOString().slice(0,10);
     for (const s of (seasonsArr || [])) {
@@ -13816,7 +13286,7 @@ async function refreshShared(c) {
         }
         async function loadShared(item) {
           if (!client) { alert("Supabase client not ready"); return; }
-          const r = await _storageDownload(client, item.path);
+          const r = await client.storage.from(BUCKET).download(item.path);
           if (r.error) { alert("Download failed: " + r.error.message); return; }
           const text = await r.data.text();
           let parsed;
@@ -13986,9 +13456,7 @@ return {
                      if (exFile && rr.file === exFile) continue;
                      const parsed = rr.parsed;
                      const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                     // Match players using the same normalisation used elsewhere in the app
-                     const targetKey = normalizeName(String(r.name || ""));
-                     const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
+                     const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
                      if (!pl) continue;
 
                      // tee for that round
@@ -14054,9 +13522,7 @@ return {
                   if (!rr || !rr.parsed) continue;
                   const parsed = rr.parsed;
                   const ps = Array.isArray(parsed.players) ? parsed.players : [];
-                  // Match players using the same normalisation used elsewhere in the app
-                  const targetKey = normalizeName(String(r.name || ""));
-                  const pl = ps.find(x => normalizeName(String(x?.name || "")) === targetKey);
+                  const pl = ps.find(x => String(x?.name||"").trim() === String(r.name||"").trim());
                   if (!pl) continue;
 
                   let pts2 = Number(pl.points);
@@ -14408,7 +13874,7 @@ return (
   />
 )}
 {view === "past" && <PastEvents sharedGroups={sharedGroups} loadShared={loadShared} setView={setView} />}
-              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode} seasonRoundsFiltered={seasonRoundsFiltered} seasonRoundsAll={seasonRoundsInSeasonAll} seasonModelAll={seasonModelAll} />}
+              {view === "event" && <EventScreen computed={computedFiltered} setView={setView} courseSlope={courseSlope} setCourseSlope={setCourseSlope} courseRating={courseRating} setCourseRating={setCourseRating} startHcapMode={startHcapMode} setStartHcapMode={setStartHcapMode} nextHcapMode={nextHcapMode} setNextHcapMode={setNextHcapMode}  seasonRoundsFiltered={seasonRoundsFiltered} />}
               {view === "banter" && <BanterStats computed={computedFiltered} setView={setView} />}
               {view === "guide" && <GuideView setView={setView} />}
               {view === "mirror_read" && <MirrorReadView setView={setView} />}
