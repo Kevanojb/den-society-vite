@@ -2774,101 +2774,6 @@ function EventNav({ setView, hasEvent = true }) {
   return <SoloNav setView={setView} left={left} />;
 }
 
-// =========================
-// HOME HERO SCORECARD (static decorative)
-// Requested: Chart Hills, Ben Hogan, total strokes 59, impressive Stableford total
-// =========================
-const HOME_HERO_SCORECARD = {
-  player: "Ben Hogan",
-  course: "Chart Hills",
-  // 18-hole strokes that sum to 59 (front 29, back 30)
-  strokes: [3,3,3,3,3,3,3,4,4,  3,3,3,3,3,3,4,4,4],
-  // Stableford points per hole that sum to 54 (front 27, back 27)
-  stableford: [4,4,3,3,3,3,3,2,2,  4,4,3,3,3,3,2,2,3],
-  // Decorative par row (not used for any calculations here)
-  par: [4,4,3,5,4,4,3,4,5,  4,4,3,5,4,4,3,4,5],
-};
-
-function MiniScorecardHero({ data = HOME_HERO_SCORECARD }) {
-  const sum = (arr) => (arr || []).reduce((a, b) => a + (Number(b) || 0), 0);
-  const frontSt = sum(data.strokes.slice(0, 9));
-  const backSt  = sum(data.strokes.slice(9));
-  const totalSt = frontSt + backSt;
-
-  const frontSf = sum(data.stableford.slice(0, 9));
-  const backSf  = sum(data.stableford.slice(9));
-  const totalSf = frontSf + backSf;
-
-  const cell = {
-    border: "1px solid rgba(255,255,255,0.16)",
-    borderRadius: 10,
-    padding: "8px 6px",
-    textAlign: "center",
-    background: "rgba(255,255,255,0.06)",
-    backdropFilter: "blur(6px)",
-  };
-
-  const small = { fontSize: 10, opacity: 0.72, lineHeight: 1.1 };
-  const big = { fontSize: 14, fontWeight: 900, lineHeight: 1.05 };
-  const pts = { fontSize: 11, fontWeight: 900, marginTop: 4, opacity: 0.95 };
-
-  return (
-    <div className="hm-scorecard-hero" style={{
-      width: "100%",
-      borderRadius: 18,
-      padding: 14,
-      background: "rgba(0,0,0,0.16)",
-      border: "1px solid rgba(255,255,255,0.16)",
-      boxShadow: "0 18px 40px rgba(0,0,0,0.24)",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={small}>Course</div>
-          <div style={{ fontSize: 18, fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {data.course}
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={small}>Player</div>
-          <div style={{ fontSize: 18, fontWeight: 950 }}>{data.player}</div>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: 8 }}>
-        {Array.from({ length: 18 }).map((_, i) => (
-          <div key={i} style={cell}>
-            <div style={small}>{i + 1}</div>
-            <div style={big}>{data.strokes[i]}</div>
-            <div style={pts}>{data.stableford[i]} pts</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 12 }}>
-        <div style={cell}>
-          <div style={small}>Front 9</div>
-          <div style={{ fontWeight: 950, fontSize: 16 }}>{frontSt}</div>
-          <div style={pts}>{frontSf} pts</div>
-        </div>
-        <div style={cell}>
-          <div style={small}>Back 9</div>
-          <div style={{ fontWeight: 950, fontSize: 16 }}>{backSt}</div>
-          <div style={pts}>{backSf} pts</div>
-        </div>
-        <div style={cell}>
-          <div style={small}>Total</div>
-          <div style={{ fontWeight: 950, fontSize: 16 }}>{totalSt}</div>
-          <div style={pts}>{totalSf} pts</div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 10, fontSize: 11, opacity: 0.78 }}>
-        *Decorative hero scorecard (59 strokes). Stableford shown for vibe.
-      </div>
-    </div>
-  );
-}
-
 function Home({
   setView,
   fileInputRef,
@@ -2945,7 +2850,58 @@ function Home({
           .hm-cta-row{ flex-direction:row; align-items:center; justify-content:space-between; gap:12px; }
           .hm-cta{ width:auto; }
         }
-      `}</style>
+      
+        /* Home hero score overlay on the mini stack */
+        .hm-mini-stack{ position:relative; }
+        .hm-scoreOverlay{
+          position:absolute;
+          inset: 10px 10px 10px 10px;
+          display:flex;
+          flex-direction:column;
+          justify-content:space-between;
+          pointer-events:none;
+          color: rgba(255,255,255,0.96);
+          text-shadow: 0 2px 10px rgba(0,0,0,0.55);
+        }
+        .hm-scoreOverlay .top{
+          display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
+        }
+        .hm-scoreOverlay .course{
+          font-weight: 950;
+          letter-spacing: -0.02em;
+          font-size: 14px;
+          line-height: 1.05;
+          max-width: 60%;
+        }
+        .hm-scoreOverlay .name{
+          font-weight: 900;
+          font-size: 12px;
+          line-height: 1.05;
+          text-align:right;
+          opacity: .95;
+          max-width: 40%;
+        }
+        .hm-scoreOverlay .grid{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+        .hm-scoreOverlay .stat{
+          border: 1px solid rgba(255,255,255,0.18);
+          background: rgba(0,0,0,0.22);
+          border-radius: 12px;
+          padding: 8px 10px;
+          backdrop-filter: blur(6px);
+        }
+        .hm-scoreOverlay .label{ font-size: 10px; opacity: .8; }
+        .hm-scoreOverlay .value{ font-size: 18px; font-weight: 950; line-height: 1.05; }
+        .hm-scoreOverlay .sub{ font-size: 10px; opacity: .85; margin-top: 2px; }
+        @media (max-width: 640px){
+          .hm-scoreOverlay{ inset: 8px; }
+          .hm-scoreOverlay .course{ font-size: 13px; }
+          .hm-scoreOverlay .value{ font-size: 16px; }
+        }
+`}</style>
 <div className="hm-stage">
         <div className="hm-grid">
 
@@ -2994,7 +2950,29 @@ function Home({
               </div>
 
               <div className="hm-hero-right">
-                <MiniScorecardHero />
+                <div className="hm-mini-stack" aria-hidden="true">
+                  <div className="hm-sheet s1" />
+                  <div className="hm-sheet s2" />
+                  <div className="hm-sheet s3" />
+                  <div className="hm-scoreOverlay">
+                    <div className="top">
+                      <div className="course">Chart Hills</div>
+                      <div className="name">Ben Hogan</div>
+                    </div>
+                    <div className="grid">
+                      <div className="stat">
+                        <div className="label">Strokes</div>
+                        <div className="value">59</div>
+                        <div className="sub">Front 29 · Back 30</div>
+                      </div>
+                      <div className="stat">
+                        <div className="label">Stableford</div>
+                        <div className="value">54</div>
+                        <div className="sub">Front 27 · Back 27</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
