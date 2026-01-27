@@ -1,16 +1,16 @@
 import React from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 // localStorage key for last selected society
 const LS_ACTIVE_SOCIETY = "den_active_society_id_v1";
 
 // IMPORTANT: your GitHub Pages base
 const GH_PAGES_BASE = "/den-society-vite/";
 const SITE_ORIGIN = "https://kevanojb.github.io";
-const SITE_URL = `${SITE_ORIGIN}${GH_PAGES_BASE}`;
+const SITE_URL = `${SITE_ORIGIN}${GH_PAGES_BASE}`; // "https://kevanojb.github.io/den-society-vite/"
+
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 function CenterCard({ children }) {
   return (
@@ -29,6 +29,10 @@ function CenterCard({ children }) {
 }
 
 export default function AuthGate() {
+  // hard fail early if env is missing (prevents silent "undefined" chaos)
+  const envOk = Boolean(SUPA_URL && SUPA_KEY);
+
+  // Create supabase client once
   const [client] = React.useState(() =>
     createClient(SUPA_URL, SUPA_KEY, {
       auth: {
@@ -38,6 +42,13 @@ export default function AuthGate() {
       },
     })
   );
+
+  // expose client for the legacy App code that expects it
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.__supabase_client__ = client;
+    }
+  }, [client]);
 
   const [session, setSession] = React.useState(null);
   const [email, setEmail] = React.useState("");
@@ -56,18 +67,18 @@ export default function AuthGate() {
     }
   });
 
-  // This controls whether the picker is currently shown.
-  // We will show it ONLY when user has >1 membership AND we haven't chosen one this session.
-  const [showPicker, setShowPicker] = React.useState(false);
-
-  const envOk = Boolean(SUPA_URL && SUPA_KEY);
+  // show picker only when needed (otherwise it blocks the app forever)
+  const [pickerOpen, setPickerOpen] = React.useState(false);
 
   // 1) session tracking
   React.useEffect(() => {
     if (!envOk) return;
 
     client.auth.getSession().then(({ data }) => setSession(data?.session || null));
-    const { data: sub } = client.auth.onAuthStateChange((_evt, s) => setSession(s || null));
+
+    const { data: sub } = client.auth.onAuthStateChange((_evt, s) => {
+      setSession(s || null);
+    });
 
     return () => {
       try {
@@ -109,7 +120,6 @@ export default function AuthGate() {
       if (!ids.length) {
         setSocieties([]);
         setTenantLoading(false);
-        setShowPicker(false);
         return;
       }
 
@@ -128,21 +138,19 @@ export default function AuthGate() {
 
       // pick remembered > only-one > first
       let pick = activeSocietyId && ids.includes(activeSocietyId) ? activeSocietyId : "";
-
       if (!pick && ids.length === 1) pick = ids[0];
+      if (!pick && ids.length) pick = ids[0];
 
-      // If >1 and nothing valid remembered, force picker
-      if (!pick && ids.length > 1) {
-        setShowPicker(true);
-        setTenantLoading(false);
-        return;
+      if (pick) {
+        setActiveSocietyId(String(pick));
       }
 
-      if (!pick && ids.length) pick = ids[0];
-      if (pick) setActiveSocietyId(String(pick));
+      // open picker only if user has >1 AND either no saved pick or saved pick invalid
+      const shouldForcePick =
+        ids.length > 1 && !(activeSocietyId && ids.includes(activeSocietyId));
 
-      // If user has multiple memberships, we only show picker when they *need* to choose
-      setShowPicker(false);
+      setPickerOpen(shouldForcePick);
+
       setTenantLoading(false);
     }
 
@@ -152,7 +160,7 @@ export default function AuthGate() {
       cancelled = true;
       setTenantLoading(false);
     };
-    // NOTE: activeSocietyId intentionally NOT in deps to avoid loops
+    // intentionally NOT depending on activeSocietyId to avoid loops
   }, [client, envOk, session?.user?.id]);
 
   // 3) persist selection
@@ -179,12 +187,10 @@ export default function AuthGate() {
 
     setBusy(true);
     try {
-      const redirectTo = SITE_URL;
-
       const { error } = await client.auth.signInWithOtp({
         email: em,
         options: {
-          emailRedirectTo: redirectTo,
+          emailRedirectTo: SITE_URL, // FORCE GitHub Pages URL
           shouldCreateUser: true,
         },
       });
@@ -204,8 +210,7 @@ export default function AuthGate() {
     } catch {}
   }
 
-  // ---------- UI GATES ----------
-
+  // If env missing, show a clear screen
   if (!envOk) {
     return (
       <CenterCard>
@@ -217,13 +222,13 @@ export default function AuthGate() {
           Your deployed build doesn’t have Supabase env vars.
         </div>
         <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-          VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are undefined in the deployed site. Fix the
-          GitHub Action env injection.
+          VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are undefined in the deployed site.
         </div>
       </CenterCard>
     );
   }
 
+  // 4) not signed in => show magic link screen
   if (!session?.user) {
     return (
       <CenterCard>
@@ -270,22 +275,8 @@ export default function AuthGate() {
     );
   }
 
-  if (tenantLoading) {
-    return (
-      <CenterCard>
-        <div className="text-sm text-neutral-600">Loading…</div>
-        {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
-        <button
-          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={signOut}
-        >
-          Sign out
-        </button>
-      </CenterCard>
-    );
-  }
-
-  if (Array.isArray(memberships) && memberships.length === 0) {
+  // 5) signed in but no access
+  if (memberships && memberships.length === 0) {
     return (
       <CenterCard>
         <div className="text-xs font-black tracking-widest uppercase text-neutral-400">
@@ -293,7 +284,7 @@ export default function AuthGate() {
         </div>
         <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          You don’t have access to any societies yet. Ask a captain to add you to the memberships
+          You don’t have access to any societies yet. Ask an admin to add you to the memberships
           table.
         </div>
         <button
@@ -307,51 +298,11 @@ export default function AuthGate() {
     );
   }
 
-  // If we need the user to choose a society, DO NOT render the app behind it.
-  if (showPicker) {
-    const options = (societies || [])
-      .slice()
-      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-
+  // 6) Block App render until we have a society
+  if (tenantLoading || !activeSocietyId) {
     return (
       <CenterCard>
-        <div className="text-xs font-black tracking-widest uppercase text-neutral-400">
-          Choose society
-        </div>
-        <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
-
-        <div className="mt-4 space-y-2">
-          {options.map((s) => (
-            <button
-              key={s.id}
-              className="w-full text-left rounded-2xl border border-neutral-200 bg-white px-4 py-3 hover:bg-neutral-50"
-              onClick={() => {
-                setActiveSocietyId(String(s.id));
-                setShowPicker(false);
-              }}
-            >
-              <div className="font-black text-neutral-900">{s.name || s.slug || s.id}</div>
-              <div className="text-xs text-neutral-500">{s.slug ? `/${s.slug}` : s.id}</div>
-            </button>
-          ))}
-        </div>
-
-        <button
-          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={signOut}
-        >
-          Sign out
-        </button>
-
-        {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
-      </CenterCard>
-    );
-  }
-
-  if (!activeSocietyId) {
-    return (
-      <CenterCard>
-        <div className="text-sm text-neutral-600">Selecting society…</div>
+        <div className="text-sm text-neutral-600">Loading society…</div>
         {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
         <button
           className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
@@ -363,20 +314,25 @@ export default function AuthGate() {
     );
   }
 
-  // Set globals synchronously BEFORE App renders (prevents 400s)
+  // 7) Compute active society + set globals BEFORE App renders
   const options = (societies || [])
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
   const activeSoc = options.find((s) => String(s.id) === String(activeSocietyId));
+  const activeRole =
+    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "player";
 
-  window.__activeSocietyId = String(activeSocietyId);
-  window.__activeSocietyName = activeSoc?.name || "";
-  window.__activeSocietySlug = activeSoc?.slug || "";
-  window.__activeSocietyRole =
-    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
+  if (typeof window !== "undefined") {
+    window.__activeSocietyId = String(activeSocietyId);
+    window.__activeSocietyName = activeSoc?.name || "";
+    window.__activeSocietySlug = activeSoc?.slug || "";
+    window.__activeSocietyRole = activeRole;
+    window.__supabase_client__ = client;
+  }
 
-  // No hooks down here
-  const AppLazy = React.lazy(() => import("./App.jsx"));
+  // 8) Load App
+  const AppLazy = React.useMemo(() => React.lazy(() => import("./App.jsx")), []);
 
   return (
     <React.Suspense
@@ -386,8 +342,51 @@ export default function AuthGate() {
         </CenterCard>
       }
     >
-      {/* key forces remount when switching societies */}
-      <AppLazy key={activeSocietyId} />
+      {/* Society picker: only blocks when pickerOpen is true */}
+      {pickerOpen && memberships.length > 1 ? (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-end sm:items-center justify-center">
+          <div className="w-full max-w-md rounded-3xl bg-white border border-neutral-200 shadow-xl p-4">
+            <div className="text-xs font-black tracking-widest uppercase text-neutral-400">
+              Choose society
+            </div>
+            <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
+
+            <div className="mt-3 space-y-2">
+              {options.map((s) => (
+                <button
+                  key={s.id}
+                  className={
+                    "w-full text-left rounded-2xl border px-4 py-3 " +
+                    (String(s.id) === String(activeSocietyId)
+                      ? "border-black bg-neutral-50"
+                      : "border-neutral-200 bg-white")
+                  }
+                  onClick={() => setActiveSocietyId(String(s.id))}
+                >
+                  <div className="font-black text-neutral-900">{s.name || s.slug || s.id}</div>
+                  <div className="text-xs text-neutral-500">{s.slug ? `/${s.slug}` : s.id}</div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              className="mt-3 w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold"
+              onClick={() => setPickerOpen(false)}
+            >
+              Continue
+            </button>
+
+            <button
+              className="mt-2 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+              onClick={signOut}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <AppLazy key={String(activeSocietyId)} />
     </React.Suspense>
   );
 }
