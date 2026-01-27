@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// localStorage key for last selected society
 const LS_ACTIVE_SOCIETY = "den_active_society_id_v1";
 
 function CenterCard({ children }) {
@@ -26,7 +25,11 @@ function CenterCard({ children }) {
 export default function AuthGate() {
   const [client] = React.useState(() =>
     createClient(SUPA_URL, SUPA_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true, // IMPORTANT for magic links
+      },
     })
   );
 
@@ -48,6 +51,23 @@ export default function AuthGate() {
     }
   });
 
+  // 0) If env missing, show a friendly error (prevents "supabaseUrl is required" mystery)
+  const envOk = Boolean(SUPA_URL && SUPA_KEY);
+  if (!envOk) {
+    return (
+      <CenterCard>
+        <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Den Society</div>
+        <div className="text-2xl font-black text-neutral-900 mt-1">Config missing</div>
+        <div className="text-sm text-neutral-600 mt-2">
+          Your build didn’t receive <code>VITE_SUPABASE_URL</code> / <code>VITE_SUPABASE_ANON_KEY</code>.
+        </div>
+        <div className="mt-3 text-sm rounded-xl px-3 py-2 bg-rose-50 border border-rose-200 text-rose-900">
+          Fix your GitHub Action to pass the secrets into <code>npm run build</code>.
+        </div>
+      </CenterCard>
+    );
+  }
+
   // 1) session tracking
   React.useEffect(() => {
     client.auth.getSession().then(({ data }) => setSession(data?.session || null));
@@ -59,7 +79,16 @@ export default function AuthGate() {
     };
   }, [client]);
 
-  // 2) load memberships + societies (IMPORTANT: does NOT depend on activeSocietyId)
+  // 1b) Clean token junk out of the URL after login
+  React.useEffect(() => {
+    if (!session) return;
+    const h = window.location.hash || "";
+    if (h.includes("access_token") || h.includes("refresh_token") || h.includes("type=magiclink")) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, [session]);
+
+  // 2) load memberships + societies (does NOT depend on activeSocietyId)
   React.useEffect(() => {
     let cancelled = false;
 
@@ -91,10 +120,7 @@ export default function AuthGate() {
         return;
       }
 
-      const s = await client
-        .from("societies")
-        .select("id, name, slug")
-        .in("id", ids);
+      const s = await client.from("societies").select("id, name, slug").in("id", ids);
 
       if (cancelled) return;
       if (s.error) {
@@ -107,8 +133,7 @@ export default function AuthGate() {
       setSocieties(socs);
 
       // pick remembered > only-one > first
-      let pick =
-        activeSocietyId && ids.includes(activeSocietyId) ? activeSocietyId : "";
+      let pick = activeSocietyId && ids.includes(activeSocietyId) ? activeSocietyId : "";
       if (!pick && ids.length === 1) pick = ids[0];
       if (!pick && ids.length) pick = ids[0];
       if (pick) setActiveSocietyId(String(pick));
@@ -119,11 +144,9 @@ export default function AuthGate() {
     loadTenant();
     return () => {
       cancelled = true;
-      // if we unmount mid-flight, don't leave UI stuck
       setTenantLoading(false);
     };
-    // NOTE: activeSocietyId intentionally NOT in deps to avoid re-run loops
-  }, [client, session?.user?.id]);
+  }, [client, session?.user?.id]); // NOTE: activeSocietyId intentionally NOT here
 
   // 3) persist selection
   React.useEffect(() => {
@@ -143,8 +166,8 @@ export default function AuthGate() {
 
     setBusy(true);
     try {
-      // This keeps the user on the same page (GitHub pages path + hash)
-      const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.hash || ""}`;
+      // DO NOT include hash here
+      const redirectTo = `${window.location.origin}${window.location.pathname}`;
       const { error } = await client.auth.signInWithOtp({
         email: em,
         options: { emailRedirectTo: redirectTo },
@@ -162,6 +185,12 @@ export default function AuthGate() {
     try {
       await client.auth.signOut();
     } catch {}
+    try {
+      localStorage.removeItem(LS_ACTIVE_SOCIETY);
+    } catch {}
+    setActiveSocietyId("");
+    setMemberships([]);
+    setSocieties([]);
   }
 
   // 4) not signed in => show magic link screen
@@ -210,7 +239,7 @@ export default function AuthGate() {
   }
 
   // 5) signed in but no access
-  if (memberships && memberships.length === 0) {
+  if (memberships && memberships.length === 0 && !tenantLoading) {
     return (
       <CenterCard>
         <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Signed in as</div>
@@ -229,7 +258,7 @@ export default function AuthGate() {
     );
   }
 
-  // 6) Block App render until we have a society
+  // 6) Block App render until we have a society (and tenant finished loading)
   if (tenantLoading || !activeSocietyId) {
     return (
       <CenterCard>
