@@ -22,9 +22,9 @@ jobs:
           node-version: 18
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
-      - name: Build Vite app
+      - name: Build Vite app (with Supabase env)
         run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
