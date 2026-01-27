@@ -1,11 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import AuthGate from "./AuthGate.jsx";
 import "./index.css";
-import "./legacy.css";   // ← ADD THIS LINE
-import App from "./App.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <AuthGate />
   </React.StrictMode>
 );
