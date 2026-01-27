@@ -34,7 +34,7 @@ export default function AuthGate() {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true, // <-- REQUIRED for magic links
+        detectSessionInUrl: true, // REQUIRED for magic links
       },
     })
   );
@@ -145,6 +145,19 @@ export default function AuthGate() {
     } catch {}
   }, [activeSocietyId]);
 
+  // 4) keep globals in sync (do this in an effect, not during render)
+  React.useEffect(() => {
+    if (!activeSocietyId) return;
+
+    const activeSoc = (societies || []).find((s) => String(s.id) === String(activeSocietyId));
+
+    window.__activeSocietyId = String(activeSocietyId);
+    window.__activeSocietyName = activeSoc?.name || "";
+    window.__activeSocietySlug = activeSoc?.slug || "";
+    window.__activeSocietyRole =
+      memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
+  }, [activeSocietyId, societies, memberships]);
+
   async function sendMagicLink(e) {
     e.preventDefault();
     setMsg("");
@@ -200,14 +213,14 @@ export default function AuthGate() {
           Your deployed build doesn’t have Supabase env vars.
         </div>
         <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-          VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are undefined in the deployed site.
-          Fix the GitHub Action env injection.
+          VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are undefined in the deployed site. Fix the
+          GitHub Action env injection.
         </div>
       </CenterCard>
     );
   }
 
-  // 4) not signed in => show magic link screen
+  // not signed in => show magic link screen
   if (!session?.user) {
     return (
       <CenterCard>
@@ -254,8 +267,8 @@ export default function AuthGate() {
     );
   }
 
-  // 5) signed in but no access
-  if (memberships && memberships.length === 0) {
+  // signed in but no access
+  if (Array.isArray(memberships) && memberships.length === 0) {
     return (
       <CenterCard>
         <div className="text-xs font-black tracking-widest uppercase text-neutral-400">
@@ -263,7 +276,7 @@ export default function AuthGate() {
         </div>
         <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          You don’t have access to any societies yet. Ask an admin to add you to the memberships
+          You don’t have access to any societies yet. Ask a captain to add you to the memberships
           table.
         </div>
         <button
@@ -277,7 +290,7 @@ export default function AuthGate() {
     );
   }
 
-  // 6) Block App render until we have a society
+  // Block App render until we have a society
   if (tenantLoading || !activeSocietyId) {
     return (
       <CenterCard>
@@ -293,20 +306,12 @@ export default function AuthGate() {
     );
   }
 
-  // 7) society picker (only shown if >1)
+  // society picker (only shown if >1)
   const options = (societies || [])
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  const activeSoc = options.find((s) => String(s.id) === String(activeSocietyId));
 
-  // 8) Set globals BEFORE importing App module
-  window.__activeSocietyId = String(activeSocietyId);
-  window.__activeSocietyName = activeSoc?.name || "";
-  window.__activeSocietySlug = activeSoc?.slug || "";
-  window.__activeSocietyRole =
-    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
-
-  const AppLazy = React.useMemo(() => React.lazy(() => import("./App.jsx")), [activeSocietyId]);
+  const AppLazy = React.lazy(() => import("./App.jsx"));
 
   return (
     <React.Suspense
@@ -352,7 +357,8 @@ export default function AuthGate() {
         </div>
       ) : null}
 
-      <AppLazy />
+      {/* key forces remount when switching societies */}
+      <AppLazy key={activeSocietyId} />
     </React.Suspense>
   );
 }
