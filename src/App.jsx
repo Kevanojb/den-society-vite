@@ -12267,6 +12267,9 @@ useEffect(() => {
   try { if (activeSocietyId) localStorage.setItem("den_active_society_id", activeSocietyId); } catch(e){}
   try { window.__activeSocietyId = activeSocietyId; } catch(e){}
 }, [activeSocietyId]);
+        const [client, setClient] = useState(null);
+        const [statusMsg, setStatusMsg] = useState("Connecting…");
+
 
 // Load memberships once we have a client + signed-in user
 useEffect(() => {
@@ -12333,11 +12336,6 @@ const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWO
   : "Den Society League";
 const VIS_LS_KEY = "den_hidden_players_v1";   // changed (optional but recommended)
 const ADMIN_VIS_PATH = PREFIX ? `${PREFIX}/admin/player_visibility.json` : "admin/player_visibility.json";
-
-
-
-        const [client, setClient] = useState(null);
-        const [statusMsg, setStatusMsg] = useState("Connecting…");
         const [sharedGroups, setSharedGroups] = useState([]);
         
         const [seasonModel, setSeasonModel] = useState(null);
