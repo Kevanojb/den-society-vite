@@ -35,40 +35,73 @@ export default function AuthGate() {
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState("");
 
+  const [tenantLoading, setTenantLoading] = React.useState(false);
+
   const [memberships, setMemberships] = React.useState([]);
   const [societies, setSocieties] = React.useState([]);
 
   const [activeSocietyId, setActiveSocietyId] = React.useState(() => {
-    try { return localStorage.getItem(LS_ACTIVE_SOCIETY) || ""; } catch { return ""; }
+    try {
+      return localStorage.getItem(LS_ACTIVE_SOCIETY) || "";
+    } catch {
+      return "";
+    }
   });
 
   // 1) session tracking
   React.useEffect(() => {
     client.auth.getSession().then(({ data }) => setSession(data?.session || null));
     const { data: sub } = client.auth.onAuthStateChange((_evt, s) => setSession(s || null));
-    return () => { try { sub?.subscription?.unsubscribe?.(); } catch {} };
+    return () => {
+      try {
+        sub?.subscription?.unsubscribe?.();
+      } catch {}
+    };
   }, [client]);
 
   // 2) load memberships + societies
   React.useEffect(() => {
     let cancelled = false;
+
     async function loadTenant() {
       if (!session?.user?.id) return;
 
+      setTenantLoading(true);
       setMsg("");
-      const m = await client.from("memberships").select("society_id, role").eq("user_id", session.user.id);
+
+      const m = await client
+        .from("memberships")
+        .select("society_id, role")
+        .eq("user_id", session.user.id);
+
       if (cancelled) return;
-      if (m.error) { setMsg(m.error.message); return; }
+      if (m.error) {
+        setMsg(m.error.message);
+        setTenantLoading(false);
+        return;
+      }
 
       const mem = Array.isArray(m.data) ? m.data : [];
       setMemberships(mem);
 
-      const ids = mem.map(x => x.society_id).filter(Boolean);
-      if (!ids.length) { setSocieties([]); return; }
+      const ids = mem.map((x) => x.society_id).filter(Boolean);
+      if (!ids.length) {
+        setSocieties([]);
+        setTenantLoading(false);
+        return;
+      }
 
-      const s = await client.from("societies").select("id, name, slug").in("id", ids);
+      const s = await client
+        .from("societies")
+        .select("id, name, slug")
+        .in("id", ids);
+
       if (cancelled) return;
-      if (s.error) { setMsg(s.error.message); return; }
+      if (s.error) {
+        setMsg(s.error.message);
+        setTenantLoading(false);
+        return;
+      }
 
       const socs = Array.isArray(s.data) ? s.data : [];
       setSocieties(socs);
@@ -78,22 +111,32 @@ export default function AuthGate() {
       if (!pick && ids.length === 1) pick = ids[0];
       if (!pick && ids.length) pick = ids[0];
       if (pick) setActiveSocietyId(String(pick));
+
+      setTenantLoading(false);
     }
 
     loadTenant();
-    return () => { cancelled = true; };
-  }, [client, session?.user?.id]);
+    return () => {
+      cancelled = true;
+    };
+    // IMPORTANT: include activeSocietyId so it re-evaluates pick after storage reads
+  }, [client, session?.user?.id, activeSocietyId]);
 
   // 3) persist selection
   React.useEffect(() => {
-    try { if (activeSocietyId) localStorage.setItem(LS_ACTIVE_SOCIETY, activeSocietyId); } catch {}
+    try {
+      if (activeSocietyId) localStorage.setItem(LS_ACTIVE_SOCIETY, activeSocietyId);
+    } catch {}
   }, [activeSocietyId]);
 
   async function sendMagicLink(e) {
     e.preventDefault();
     setMsg("");
     const em = (email || "").trim();
-    if (!em) { setMsg("Enter your email."); return; }
+    if (!em) {
+      setMsg("Enter your email.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -113,7 +156,9 @@ export default function AuthGate() {
   }
 
   async function signOut() {
-    try { await client.auth.signOut(); } catch {}
+    try {
+      await client.auth.signOut();
+    } catch {}
   }
 
   // 4) not signed in => show magic link screen
@@ -132,18 +177,28 @@ export default function AuthGate() {
               type="email"
               autoComplete="email"
               value={email}
-              onChange={(e)=>setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="name@example.com"
             />
           </div>
 
           {msg ? (
-            <div className={"text-sm rounded-xl px-3 py-2 " + (String(msg).includes("sent") ? "bg-emerald-50 border border-emerald-200 text-emerald-900" : "bg-rose-50 border border-rose-200 text-rose-900")}>
+            <div
+              className={
+                "text-sm rounded-xl px-3 py-2 " +
+                (String(msg).includes("sent")
+                  ? "bg-emerald-50 border border-emerald-200 text-emerald-900"
+                  : "bg-rose-50 border border-rose-200 text-rose-900")
+              }
+            >
               {msg}
             </div>
           ) : null}
 
-          <button className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60" disabled={busy}>
+          <button
+            className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60"
+            disabled={busy}
+          >
             {busy ? "Sending…" : "Send magic link"}
           </button>
         </form>
@@ -160,7 +215,10 @@ export default function AuthGate() {
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           You don’t have access to any societies yet. Ask an admin to add you to the memberships table.
         </div>
-        <button className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={signOut}>
+        <button
+          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={signOut}
+        >
           Sign out
         </button>
         {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
@@ -168,24 +226,36 @@ export default function AuthGate() {
     );
   }
 
-  // 6) society picker (only shown if >1)
-  const options = (societies || []).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  const activeSoc = options.find(s => String(s.id) === String(activeSocietyId));
-
-  // 7) Set globals BEFORE importing App module
-  if (activeSocietyId) {
-    window.__activeSocietyId = String(activeSocietyId);
-    window.__activeSocietyName = activeSoc?.name || "";
-    window.__activeSocietySlug = activeSoc?.slug || "";
-    window.__activeSocietyRole =
-      (memberships.find(m => String(m.society_id) === String(activeSocietyId))?.role) || "member";
+  // 6) If we’re still loading tenant data OR we haven’t got a society yet, block App render.
+  if (tenantLoading || !activeSocietyId) {
+    return (
+      <CenterCard>
+        <div className="text-sm text-neutral-600">Loading society…</div>
+        {msg ? <div className="mt-3 text-sm text-rose-700">{msg}</div> : null}
+        <button
+          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={signOut}
+        >
+          Sign out
+        </button>
+      </CenterCard>
+    );
   }
 
-  const AppLazy = React.useMemo(
-    () => React.lazy(() => import("./App.jsx")),
-    // re-import if society changes, so module evaluates with the right globals
-    [activeSocietyId]
-  );
+  // 7) society picker (only shown if >1)
+  const options = (societies || [])
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const activeSoc = options.find((s) => String(s.id) === String(activeSocietyId));
+
+  // 8) Set globals BEFORE importing App module
+  window.__activeSocietyId = String(activeSocietyId);
+  window.__activeSocietyName = activeSoc?.name || "";
+  window.__activeSocietySlug = activeSoc?.slug || "";
+  window.__activeSocietyRole =
+    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "member";
+
+  const AppLazy = React.useMemo(() => React.lazy(() => import("./App.jsx")), [activeSocietyId]);
 
   return (
     <React.Suspense fallback={<CenterCard><div className="text-sm text-neutral-600">Loading…</div></CenterCard>}>
@@ -196,10 +266,15 @@ export default function AuthGate() {
             <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
 
             <div className="mt-3 space-y-2">
-              {options.map(s => (
+              {options.map((s) => (
                 <button
                   key={s.id}
-                  className={"w-full text-left rounded-2xl border px-4 py-3 " + (String(s.id) === String(activeSocietyId) ? "border-black bg-neutral-50" : "border-neutral-200 bg-white")}
+                  className={
+                    "w-full text-left rounded-2xl border px-4 py-3 " +
+                    (String(s.id) === String(activeSocietyId)
+                      ? "border-black bg-neutral-50"
+                      : "border-neutral-200 bg-white")
+                  }
                   onClick={() => setActiveSocietyId(String(s.id))}
                 >
                   <div className="font-black text-neutral-900">{s.name || s.slug || s.id}</div>
@@ -208,7 +283,10 @@ export default function AuthGate() {
               ))}
             </div>
 
-            <button className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={signOut}>
+            <button
+              className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+              onClick={signOut}
+            >
               Sign out
             </button>
           </div>
@@ -219,4 +297,3 @@ export default function AuthGate() {
     </React.Suspense>
   );
 }
-
