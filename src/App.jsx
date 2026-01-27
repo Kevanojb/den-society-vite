@@ -12207,7 +12207,8 @@ function getRouteSlug() {
 const ROUTE_SLUG = getRouteSlug();
 
 // Buckets (separate buckets per league)
-const BUCKET = ROUTE_SLUG === "winter-league" ? "winter_league" : "den-events";
+const BUCKET = ROUTE_SLUG === "winter-league" ? "winter-league" : "den-events";
+const BUCKET_FALLBACK = ROUTE_SLUG === "winter-league" ? "winter_league" : null;
 const STANDINGS_TABLE = "standings";
 
 // Default competition per league route (still overrideable elsewhere if needed)
@@ -12215,6 +12216,41 @@ const COMPETITION = ROUTE_SLUG === "winter-league" ? "winter" : "season";
 
 // Storage prefix inside the bucket (empty = bucket root)
 const PREFIX = "";
+
+
+// Storage helpers: try primary bucket, then fallback (keeps existing winter_league deployments working)
+async function _storageList(client, path, opts) {
+  let res = await _storageList(client, path, opts);
+  if (res?.error && BUCKET_FALLBACK) {
+    const res2 = await client.storage.from(BUCKET_FALLBACK).list(path, opts);
+    if (!res2?.error) return res2;
+  }
+  return res;
+}
+async function _storageDownload(client, filePath) {
+  let res = await _storageDownload(client, filePath);
+  if (res?.error && BUCKET_FALLBACK) {
+    const res2 = await client.storage.from(BUCKET_FALLBACK).download(filePath);
+    if (!res2?.error) return res2;
+  }
+  return res;
+}
+async function _storageUpload(client, filePath, file, opts) {
+  let res = await _storageUpload(client, filePath, file, opts);
+  if (res?.error && BUCKET_FALLBACK) {
+    const res2 = await client.storage.from(BUCKET_FALLBACK).upload(filePath, file, opts);
+    if (!res2?.error) return res2;
+  }
+  return res;
+}
+async function _storageRemove(client, paths) {
+  let res = await _storageRemove(client, paths);
+  if (res?.error && BUCKET_FALLBACK) {
+    const res2 = await client.storage.from(BUCKET_FALLBACK).remove(paths);
+    if (!res2?.error) return res2;
+  }
+  return res;
+}
 
 // Admin player visibility (hide / re-include players)
 const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
@@ -13281,7 +13317,7 @@ async function getTeesForCourseName(courseName) {
       if (seen.has(p)) continue;
       seen.add(p);
 
-      const res = await client.storage.from(BUCKET).list(p, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+      const res = await _storageList(client, p, { limit: 1000, sortBy: { column: "name", order: "asc" } });
       if (res.error) continue;
 
       for (const item of (res.data || [])) {
@@ -13318,7 +13354,7 @@ async function getTeesForCourseName(courseName) {
 
   for (const f of files) {
     try {
-      const dl = await client.storage.from(BUCKET).download(f.path);
+      const dl = await _storageDownload(client, f.path);
       if (dl.error) {
         skipped.push({ file: f.path, reason: "download" });
       } else {
@@ -13530,7 +13566,7 @@ async function savePlayerVisibility(nextHiddenKeys) {
       updatedBy: user?.email || ""
     }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
-    const up = await client.storage.from(BUCKET).upload(ADMIN_VIS_PATH, blob, { upsert: true, contentType: "application/json" });
+    const up = await _storageUpload(client, ADMIN_VIS_PATH, blob, { upsert: true, contentType: "application/json" });
     if (up && up.error) toast("Save failed: " + up.error.message);
     else toast("Player filter saved ✓");
   } catch (e) {
@@ -13780,7 +13816,7 @@ async function refreshShared(c) {
         }
         async function loadShared(item) {
           if (!client) { alert("Supabase client not ready"); return; }
-          const r = await client.storage.from(BUCKET).download(item.path);
+          const r = await _storageDownload(client, item.path);
           if (r.error) { alert("Download failed: " + r.error.message); return; }
           const text = await r.data.text();
           let parsed;
