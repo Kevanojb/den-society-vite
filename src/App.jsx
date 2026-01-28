@@ -13544,22 +13544,32 @@ setSeasonRounds(rounds);
           }
           boot();
           return () => { cancelled = true; };
-        }, []);
+        }, []); 
 
         
-        // Refetch tenant-scoped data when the active society changes.
-        // AuthGate can load membership asynchronously, so App may mount once with SOCIETY_ID = "".
+        // When the active society changes (or competition mode flips), reload tenant-scoped data.
+        // This matters because SOCIETY_ID is resolved at runtime from AuthGate props/globals,
+        // and the initial boot() effect runs only once.
         useEffect(() => {
           if (!client) return;
+
+          // Reset UI state so we don't carry season IDs across tenants
+          setSeasonsDef([]);
+          setActiveSeasonId("");
+          setLeagueSeasonYear("All");
+          setSeason({});
+
           if (!SOCIETY_ID) return;
-          // Pull everything that is tenant-scoped
-          refreshShared(client);
-          fetchSeasons(client);
-          fetchSeason(client);
-          fetchPlayerVisibility(client);
+
+          (async () => {
+            await refreshShared(client);
+            await fetchSeasons(client);
+            await fetchSeason(client);
+            await fetchPlayerVisibility(client);
+          })();
         }, [client, SOCIETY_ID, COMPETITION]);
 
-        // Refetch standings when the selected league season changes
+// Refetch standings when the selected league season changes
         useEffect(() => {
           if (!client) return;
           fetchSeason(client);
