@@ -14361,10 +14361,35 @@ if (res.error) toast("Error: " + res.error.message);
 
         async function clearSeason() {
           if (!client) { toast("No client"); return; }
-          if (!window.confirm("⚠ This will delete ALL season standings. Continue?")) return;
-          const res = await client.from(STANDINGS_TABLE).delete().eq("competition", COMPETITION).eq("society_id", SOCIETY_ID).eq("season_id", targetSeasonId).neq("name", "");
-          if (res.error) toast("Error: " + res.error.message);
-          else { setSeason({}); toast("Season cleared"); }
+
+          const targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
+            ? String(seasonYear)
+            : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
+
+          if (!targetSeasonId) { toast("Select a season first"); return; }
+
+          if (!window.confirm("⚠ This will delete ALL standings rows for the selected season. Continue?")) return;
+
+          const res = await client
+            .from(STANDINGS_TABLE)
+            .delete()
+            .eq("competition", COMPETITION)
+            .eq("society_id", SOCIETY_ID)
+            .eq("season_id", targetSeasonId)
+            .neq("name", "");
+
+          if (res.error) {
+            toast("Error: " + res.error.message);
+            return;
+          }
+
+          setSeason({});
+          toast("Season cleared");
+
+          // Refresh dropdown + table
+          await fetchSeasons(client);
+          await fetchSeason(client);
+          await refreshShared(client);
         }
 
         
