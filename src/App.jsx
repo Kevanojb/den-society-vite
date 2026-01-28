@@ -12202,10 +12202,22 @@ const ACTIVE = (() => {
 const SOCIETY_ID = ACTIVE.id;
 const SOCIETY_SLUG = ACTIVE.slug || "den-society";
 
-const LEAGUE_SLUG = SOCIETY_SLUG;
-const LEAGUE_TITLE = ACTIVE.name || SOCIETY_SLUG;
-const LEAGUE_HEADER_TITLE = LEAGUE_TITLE;
+
+// Update back-compat module vars once tenant is known
+LEAGUE_SLUG = SOCIETY_SLUG;
+LEAGUE_TITLE = ACTIVE.name || SOCIETY_SLUG;
+LEAGUE_HEADER_TITLE = LEAGUE_TITLE;
+
 const IS_WINTER_LEAGUE = SOCIETY_SLUG === "winter-league";
+
+
+// ------------------------------------------------------------
+// Back-compat league labels (some components reference these).
+// We assign them at runtime inside App() after tenant is known.
+// ------------------------------------------------------------
+let LEAGUE_SLUG = "";
+let LEAGUE_TITLE = "";
+let LEAGUE_HEADER_TITLE = "";
 
 // Storage: single bucket, per-society folders
 const BUCKET = "den-events";
