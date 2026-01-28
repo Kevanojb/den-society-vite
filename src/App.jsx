@@ -12204,6 +12204,7 @@ const SOCIETY_SLUG = ACTIVE.slug || "den-society";
 
 const LEAGUE_SLUG = SOCIETY_SLUG;
 const LEAGUE_TITLE = ACTIVE.name || SOCIETY_SLUG;
+const LEAGUE_HEADER_TITLE = LEAGUE_TITLE;
 const IS_WINTER_LEAGUE = SOCIETY_SLUG === "winter-league";
 
 // Storage: single bucket, per-society folders
