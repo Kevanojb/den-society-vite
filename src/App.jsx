@@ -51,12 +51,6 @@ function getActiveSociety() {
 // NOTE: tenant selection is now decided at runtime (props from AuthGate),
 // so we must NOT freeze SOCIETY_ID/PREFIX at module-load time.
 // (In Vite/ESM, module-scope constants run once on import, which can be before globals are set.)
-try {
-  if (typeof window !== "undefined") {
-    window.__league = { slug: LEAGUE_SLUG, isWinter: IS_WINTER_LEAGUE, title: LEAGUE_TITLE, bucket: BUCKET, competition: COMPETITION };
-  }
-} catch (e) {}
-
 // --- 9-hole / partial round support ---
 // Guaranteed global helper (using `var`) so missing holes stay missing instead of becoming zeros.
 var _safeNum = function (v, fallback) {
@@ -12207,6 +12201,9 @@ const ACTIVE = (() => {
 
 const SOCIETY_ID = ACTIVE.id;
 const SOCIETY_SLUG = ACTIVE.slug || "den-society";
+
+const LEAGUE_SLUG = SOCIETY_SLUG;
+const LEAGUE_TITLE = ACTIVE.name || SOCIETY_SLUG;
 const IS_WINTER_LEAGUE = SOCIETY_SLUG === "winter-league";
 
 // Storage: single bucket, per-society folders
@@ -12217,15 +12214,7 @@ const PREFIX = SOCIETY_ID ? `societies/${SOCIETY_ID}/events` : "societies/UNKNOW
 const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
 
 // Optional: expose for debugging
-try {
-  if (typeof window !== "undefined") {
-    window.__league = { slug: SOCIETY_SLUG, isWinter: IS_WINTER_LEAGUE, title: (ACTIVE.name || SOCIETY_SLUG), bucket: BUCKET, competition: COMPETITION, prefix: PREFIX, societyId: SOCIETY_ID };
-  }
-} catch (e) {}
-
-
-
-        // --- Global scoring-mode visual accent (UI only; no calculation changes) ---
+// --- Global scoring-mode visual accent (UI only; no calculation changes) ---
         useEffect(() => {
           const apply = (lens) => {
             const v = (lens === "pointsField" || lens === "strokesField" || lens === "strokesPar") ? lens : "pointsField";
