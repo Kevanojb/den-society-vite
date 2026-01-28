@@ -12263,8 +12263,6 @@ const STANDINGS_TABLE = "standings";
 const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
 
 // Storage prefix for CSVs inside bucket.
-const PREFIX = "events";
-
 // Admin player visibility (hide / re-include players)
 const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
 const ADMIN_PASSWORD = (typeof window !== "undefined" && window.DEN_ADMIN_PASSWORD)
@@ -13785,7 +13783,7 @@ function seasonIdForDateMs(ms, seasonsArr) {
 
 async function fetchSeasons(c) {
   c = c || client; if (!c) return;
-  const r = await c.from('seasons').select('competition,season_id,label,start_date,end_date,is_active').eq('competition', COMPETITION).order('start_date', { ascending: false });
+  const r = await c.from('seasons').select('competition,season_id,label,start_date,end_date,is_active').eq('competition', COMPETITION).eq('society_id', SOCIETY_ID).order('start_date', { ascending: false });
   if (r.error) { toast('Seasons load failed: ' + r.error.message); return; }
   const arr = Array.isArray(r.data) ? r.data : [];
   setSeasonsDef(arr);
@@ -13872,7 +13870,7 @@ async function refreshShared(c) {
 
         async function fetchSeason(c) {
           c = c || client; if (!c) return;
-          let q = c.from(STANDINGS_TABLE).select("*").eq("competition", COMPETITION);
+          let q = c.from(STANDINGS_TABLE).select("*").eq("competition", COMPETITION).eq("society_id", SOCIETY_ID);
           if (leagueSeasonYear && String(leagueSeasonYear).toLowerCase() !== "all") q = q.eq("season_id", String(leagueSeasonYear));
           const r = await q;
           if (r.error) { setStatusMsg("Error: " + r.error.message); return; }
@@ -14258,13 +14256,14 @@ return {
               : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
             if (!targetSeasonId) { toast("Select a season first"); return; }
             const rows = vals.map((r) => ({
+              society_id: SOCIETY_ID,
               season_id: targetSeasonId,
               competition: COMPETITION,
               name: r.name, total_points: r.totalPoints, events: r.events,
               best_event_points: r.bestEventPoints, best_hole_points: r.bestHolePoints,
               eclectic_total: r.eclecticTotal, best_per_hole: r.bestPerHole,
             }));
-            const res = await client.from(STANDINGS_TABLE).upsert(rows, { onConflict: "season_id,competition,name" });
+            const res = await client.from(STANDINGS_TABLE).upsert(rows, { onConflict: "society_id,season_id,competition,name" });
 if (res.error) toast("Error: " + res.error.message);
             else toast("Season updated ✓");
             
@@ -14299,13 +14298,14 @@ if (res.error) toast("Error: " + res.error.message);
               : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
             if (!targetSeasonId) { toast("Select a season first"); return; }
             const rows = vals.map((r) => ({
+              society_id: SOCIETY_ID,
               season_id: targetSeasonId,
               competition: COMPETITION,
               name: r.name, total_points: r.totalPoints, events: r.events,
               best_event_points: r.bestEventPoints, best_hole_points: r.bestHolePoints,
               eclectic_total: r.eclecticTotal, best_per_hole: r.bestPerHole,
             }));
-            const res = await client.from(STANDINGS_TABLE).upsert(rows, { onConflict: "season_id,competition,name" });
+            const res = await client.from(STANDINGS_TABLE).upsert(rows, { onConflict: "society_id,season_id,competition,name" });
 if (res.error) toast("Error: " + res.error.message);
             else toast("Event removed from season ✓");
           }
@@ -14314,7 +14314,7 @@ if (res.error) toast("Error: " + res.error.message);
         async function clearSeason() {
           if (!client) { toast("No client"); return; }
           if (!window.confirm("⚠ This will delete ALL season standings. Continue?")) return;
-          const res = await client.from(STANDINGS_TABLE).delete().eq("competition", COMPETITION).eq("season_id", targetSeasonId).neq("name", "");
+          const res = await client.from(STANDINGS_TABLE).delete().eq("competition", COMPETITION).eq("society_id", SOCIETY_ID).eq("season_id", targetSeasonId).neq("name", "");
           if (res.error) toast("Error: " + res.error.message);
           else { setSeason({}); toast("Season cleared"); }
         }
