@@ -14222,7 +14222,41 @@ return {
           return out.sort((a, b) => a.position - b.position);
         }, [players, courseTees, courseSlope, courseRating, startHcapMode, nextHcapMode, seasonRounds]);
 
-        async function addEventToSeason() {
+        
+async function ensureSeasonExists(client) {
+  const existing = await client
+    .from('seasons')
+    .select('season_id')
+    .eq('society_id', SOCIETY_ID)
+    .eq('competition', COMPETITION)
+    .order('start_date', { ascending: false })
+    .limit(1);
+
+  if (existing.data && existing.data.length) {
+    return existing.data[0].season_id;
+  }
+
+  // create a default season
+  const year = new Date().getFullYear();
+  const season_id = String(year);
+  const start_date = `${year}-01-01`;
+  const end_date = `${year+1}-01-01`;
+
+  const { error } = await client.from('seasons').insert({
+    society_id: SOCIETY_ID,
+    competition: COMPETITION,
+    season_id,
+    label: season_id,
+    start_date,
+    end_date,
+    is_active: true
+  });
+
+  if (error) throw error;
+  return season_id;
+}
+
+async function addEventToSeason() {
           if (!computed.length) { toast("Load an event first"); return; }
           if (!user) { alert("Please log in as admin first."); return; }
           
@@ -14262,10 +14296,13 @@ return {
           setSeason(next);
           if (client) {
             const vals = Object.values(next).filter((r) => !isTeamLike(r.name));
-            const targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
+            let targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
               ? String(seasonYear)
               : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
-            if (!targetSeasonId) { toast("Select a season first"); return; }
+
+            if (!targetSeasonId) {
+              targetSeasonId = await ensureSeasonExists(client);
+            }
             const rows = vals.map((r) => ({
               society_id: SOCIETY_ID,
               season_id: targetSeasonId,
