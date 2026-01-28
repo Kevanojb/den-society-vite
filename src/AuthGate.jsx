@@ -98,9 +98,11 @@ export default function AuthGate() {
   }, [client, envOk]);
 
   const loadTenant = React.useCallback(
-    async (userId) => {
+    async (userId, opts = {}) => {
       if (!envOk) return;
       if (!userId) return;
+
+      const { preferSocietyId = "" } = opts || {};
 
       setTenantLoading(true);
       setMsg("");
@@ -116,7 +118,7 @@ export default function AuthGate() {
       const mem = Array.isArray(m.data) ? m.data : [];
       setMemberships(mem);
 
-      const ids = mem.map((x) => x.society_id).filter(Boolean);
+      const ids = mem.map((x) => x.society_id).filter(Boolean).map(String);
 
       if (!ids.length) {
         setSocieties([]);
@@ -136,8 +138,16 @@ export default function AuthGate() {
       const socs = Array.isArray(s.data) ? s.data : [];
       setSocieties(socs);
 
-      // choose: remembered (if valid) else if single membership choose it else force picker
-      let pick = activeSocietyId && ids.includes(activeSocietyId) ? activeSocietyId : "";
+      // choose:
+      // 1) preferSocietyId (used after create)
+      // 2) remembered (if valid)
+      // 3) if single membership choose it
+      // 4) if multiple memberships and still no pick, show picker
+      let pick =
+        preferSocietyId && ids.includes(String(preferSocietyId)) ? String(preferSocietyId) : "";
+
+      if (!pick && activeSocietyId && ids.includes(String(activeSocietyId)))
+        pick = String(activeSocietyId);
 
       if (!pick && ids.length === 1) pick = ids[0];
 
@@ -149,7 +159,13 @@ export default function AuthGate() {
 
       if (!pick && ids.length) pick = ids[0];
 
-      if (pick) setActiveSocietyId(String(pick));
+      if (pick) {
+        setActiveSocietyId(String(pick));
+        try {
+          localStorage.setItem(LS_ACTIVE_SOCIETY, String(pick));
+        } catch {}
+      }
+
       setPickerOpen(false);
       setTenantLoading(false);
     },
@@ -160,24 +176,16 @@ export default function AuthGate() {
   React.useEffect(() => {
     if (!envOk) return;
 
-    let cancelled = false;
-
     async function run() {
       const userId = session?.user?.id;
       if (!userId) return;
-
       await loadTenant(userId);
     }
 
     run();
-
-    return () => {
-      cancelled = true;
-      if (cancelled) setTenantLoading(false);
-    };
   }, [envOk, session?.user?.id, loadTenant]);
 
-  // persist selection
+  // persist selection (normal selection changes)
   React.useEffect(() => {
     try {
       if (activeSocietyId) localStorage.setItem(LS_ACTIVE_SOCIETY, activeSocietyId);
@@ -259,7 +267,6 @@ export default function AuthGate() {
 
     setCreating(true);
     try {
-      // You will create this RPC in Supabase (recommended for atomic + RLS-safe create).
       // Expected signature:
       //   create_society_with_code(society_name text, society_slug text, invite_code text) returns uuid
       const { data, error } = await client.rpc("create_society_with_code", {
@@ -270,14 +277,24 @@ export default function AuthGate() {
 
       if (error) throw error;
 
-      // Clear form + reload tenant data
+      const newId = String(data || "");
+      if (newId) {
+        // Force-select the newly created society (beats remembered selection)
+        setActiveSocietyId(newId);
+        try {
+          localStorage.setItem(LS_ACTIVE_SOCIETY, newId);
+        } catch {}
+        setPickerOpen(false);
+      }
+
+      // Clear form + reload tenant data (preferring the newly created society)
       setInviteCode("");
       setNewSocietyName("");
       setNewSocietySlug("");
       setCreateMode(false);
 
       const userId = session?.user?.id;
-      await loadTenant(userId);
+      await loadTenant(userId, { preferSocietyId: newId });
     } catch (ex) {
       setMsg(ex?.message || String(ex));
     } finally {
@@ -473,7 +490,11 @@ export default function AuthGate() {
               key={s.id}
               className="w-full text-left rounded-2xl border border-neutral-200 bg-white px-4 py-3 hover:bg-neutral-50"
               onClick={() => {
-                setActiveSocietyId(String(s.id));
+                const id = String(s.id);
+                setActiveSocietyId(id);
+                try {
+                  localStorage.setItem(LS_ACTIVE_SOCIETY, id);
+                } catch {}
                 setPickerOpen(false);
               }}
             >
