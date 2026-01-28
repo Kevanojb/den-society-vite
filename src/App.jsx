@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// Back-compat league labels (some components reference these)
+let LEAGUE_SLUG = "";
+let LEAGUE_TITLE = "";
+let LEAGUE_HEADER_TITLE = "";
+
 // =========================
 // VITE RUNTIME HELPERS (module-scope)
 // Some helpers were previously declared inside blocks which makes them block-scoped in ES modules.
@@ -12210,14 +12215,6 @@ LEAGUE_HEADER_TITLE = LEAGUE_TITLE;
 
 const IS_WINTER_LEAGUE = SOCIETY_SLUG === "winter-league";
 
-
-// ------------------------------------------------------------
-// Back-compat league labels (some components reference these).
-// We assign them at runtime inside App() after tenant is known.
-// ------------------------------------------------------------
-let LEAGUE_SLUG = "";
-let LEAGUE_TITLE = "";
-let LEAGUE_HEADER_TITLE = "";
 
 // Storage: single bucket, per-society folders
 const BUCKET = "den-events";
