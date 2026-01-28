@@ -29,6 +29,14 @@ function CenterCard({ children }) {
   );
 }
 
+function slugify(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 export default function AuthGate() {
   const envOk = Boolean(SUPA_URL && SUPA_KEY);
 
@@ -61,6 +69,20 @@ export default function AuthGate() {
 
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
+  // ---- Create society (invite code) ----
+  const [createMode, setCreateMode] = React.useState(false);
+  const [inviteCode, setInviteCode] = React.useState("");
+  const [newSocietyName, setNewSocietyName] = React.useState("");
+  const [newSocietySlug, setNewSocietySlug] = React.useState("");
+  const [creating, setCreating] = React.useState(false);
+
+  React.useEffect(() => {
+    // Auto-suggest slug from name unless user has typed a slug.
+    if (!newSocietyName) return;
+    if (newSocietySlug) return;
+    setNewSocietySlug(slugify(newSocietyName));
+  }, [newSocietyName, newSocietySlug]);
+
   // session tracking
   React.useEffect(() => {
     if (!envOk) return;
@@ -75,24 +97,15 @@ export default function AuthGate() {
     };
   }, [client, envOk]);
 
-  // load memberships + societies
-  React.useEffect(() => {
-    if (!envOk) return;
-
-    let cancelled = false;
-
-    async function loadTenant() {
-      if (!session?.user?.id) return;
+  const loadTenant = React.useCallback(
+    async (userId) => {
+      if (!envOk) return;
+      if (!userId) return;
 
       setTenantLoading(true);
       setMsg("");
 
-      const m = await client
-        .from("memberships")
-        .select("society_id, role")
-        .eq("user_id", session.user.id);
-
-      if (cancelled) return;
+      const m = await client.from("memberships").select("society_id, role").eq("user_id", userId);
 
       if (m.error) {
         setMsg(m.error.message);
@@ -113,8 +126,6 @@ export default function AuthGate() {
       }
 
       const s = await client.from("societies").select("id, name, slug").in("id", ids);
-
-      if (cancelled) return;
 
       if (s.error) {
         setMsg(s.error.message);
@@ -141,15 +152,30 @@ export default function AuthGate() {
       if (pick) setActiveSocietyId(String(pick));
       setPickerOpen(false);
       setTenantLoading(false);
+    },
+    [client, envOk, activeSocietyId]
+  );
+
+  // load memberships + societies
+  React.useEffect(() => {
+    if (!envOk) return;
+
+    let cancelled = false;
+
+    async function run() {
+      const userId = session?.user?.id;
+      if (!userId) return;
+
+      await loadTenant(userId);
     }
 
-    loadTenant();
+    run();
+
     return () => {
       cancelled = true;
-      setTenantLoading(false);
+      if (cancelled) setTenantLoading(false);
     };
-    // intentionally not depending on activeSocietyId to avoid loops
-  }, [client, envOk, session?.user?.id]);
+  }, [envOk, session?.user?.id, loadTenant]);
 
   // persist selection
   React.useEffect(() => {
@@ -158,7 +184,8 @@ export default function AuthGate() {
     } catch {}
   }, [activeSocietyId]);
 
-  // ✅ Always sync globals once we know the active society
+  // ✅ Legacy compatibility: keep these globals while App.jsx still expects them.
+  // Once App.jsx is fully prop/context-driven, you can remove this entire effect safely.
   React.useEffect(() => {
     if (!session?.user || !activeSocietyId) return;
 
@@ -217,6 +244,45 @@ export default function AuthGate() {
     try {
       await client.auth.signOut();
     } catch {}
+  }
+
+  async function createSociety(e) {
+    e.preventDefault();
+    setMsg("");
+
+    const name = (newSocietyName || "").trim();
+    const code = (inviteCode || "").trim();
+    const slug = ((newSocietySlug || "") || slugify(name)).trim();
+
+    if (!name) return setMsg("Enter a society name.");
+    if (!code) return setMsg("Enter your invite code.");
+
+    setCreating(true);
+    try {
+      // You will create this RPC in Supabase (recommended for atomic + RLS-safe create).
+      // Expected signature:
+      //   create_society_with_code(society_name text, society_slug text, invite_code text) returns uuid
+      const { data, error } = await client.rpc("create_society_with_code", {
+        society_name: name,
+        society_slug: slug,
+        invite_code: code,
+      });
+
+      if (error) throw error;
+
+      // Clear form + reload tenant data
+      setInviteCode("");
+      setNewSocietyName("");
+      setNewSocietySlug("");
+      setCreateMode(false);
+
+      const userId = session?.user?.id;
+      await loadTenant(userId);
+    } catch (ex) {
+      setMsg(ex?.message || String(ex));
+    } finally {
+      setCreating(false);
+    }
   }
 
   // ---- UI gates ----
@@ -283,18 +349,108 @@ export default function AuthGate() {
   }
 
   if (memberships.length === 0) {
+    if (!createMode) {
+      return (
+        <CenterCard>
+          <div className="text-lg font-black text-neutral-900">{session.user.email}</div>
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            You don’t have access to any societies yet.
+          </div>
+
+          <button
+            className="mt-4 w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold"
+            onClick={() => {
+              setMsg("");
+              setCreateMode(true);
+            }}
+          >
+            Create a new society
+          </button>
+
+          <button
+            className="mt-3 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+            onClick={signOut}
+          >
+            Sign out
+          </button>
+        </CenterCard>
+      );
+    }
+
     return (
       <CenterCard>
-        <div className="text-lg font-black text-neutral-900">{session.user.email}</div>
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          You don’t have access to any societies yet.
+        <div className="text-2xl font-black text-neutral-900">Create society</div>
+        <div className="text-sm text-neutral-600 mt-2">
+          Enter your invite code and name your society.
         </div>
-        <button
-          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={signOut}
-        >
-          Sign out
-        </button>
+
+        <form className="mt-4 space-y-3" onSubmit={createSociety}>
+          <div>
+            <label className="block text-xs font-bold text-neutral-700 mb-1">Invite code</label>
+            <input
+              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="e.g. CHART-7F3KQ"
+              autoCapitalize="characters"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-neutral-700 mb-1">Society name</label>
+            <input
+              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+              value={newSocietyName}
+              onChange={(e) => setNewSocietyName(e.target.value)}
+              placeholder="e.g. Den Society"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-neutral-700 mb-1">Slug (optional)</label>
+            <input
+              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+              value={newSocietySlug}
+              onChange={(e) => setNewSocietySlug(e.target.value)}
+              placeholder="e.g. den-society"
+            />
+            <div className="text-xs text-neutral-500 mt-1">
+              Used for friendly URLs later. Leave blank to auto-generate.
+            </div>
+          </div>
+
+          {msg ? (
+            <div className="text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
+              {msg}
+            </div>
+          ) : null}
+
+          <button
+            className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60"
+            disabled={creating}
+          >
+            {creating ? "Creating…" : "Create society"}
+          </button>
+
+          <button
+            type="button"
+            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+            onClick={() => {
+              setMsg("");
+              setCreateMode(false);
+            }}
+          >
+            Back
+          </button>
+
+          <button
+            type="button"
+            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+            onClick={signOut}
+          >
+            Sign out
+          </button>
+        </form>
       </CenterCard>
     );
   }
@@ -337,6 +493,10 @@ export default function AuthGate() {
     );
   }
 
+  const activeSoc = options.find((s) => String(s.id) === String(activeSocietyId));
+  const role =
+    memberships.find((m) => String(m.society_id) === String(activeSocietyId))?.role || "player";
+
   return (
     <React.Suspense fallback={<CenterCard><div>Loading…</div></CenterCard>}>
       <AppLazy
@@ -344,8 +504,9 @@ export default function AuthGate() {
         supabase={client}
         session={session}
         activeSocietyId={String(activeSocietyId)}
-        activeSocietySlug={options.find((s) => String(s.id) === String(activeSocietyId))?.slug || ""}
-        activeSocietyName={options.find((s) => String(s.id) === String(activeSocietyId))?.name || ""}
+        activeSocietySlug={activeSoc?.slug || ""}
+        activeSocietyName={activeSoc?.name || ""}
+        activeSocietyRole={role}
       />
     </React.Suspense>
   );
