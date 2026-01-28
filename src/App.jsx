@@ -14284,7 +14284,7 @@ async function addEventToSeason() {
     .map(r => ({
       society_id: SOCIETY_ID,
       season_id: targetSeasonId,
-      competition: COMPETITION,
+      competition: "season",
       name: r.name,
       total_points: r.totalPoints,
       events: r.events,
@@ -14329,7 +14329,7 @@ async function removeEventFromSeason() {
     .map(r => ({
       society_id: SOCIETY_ID,
       season_id: targetSeasonId,
-      competition: COMPETITION,
+      competition: "season",
       name: r.name,
       total_points: r.totalPoints,
       events: r.events,
@@ -14391,7 +14391,7 @@ async function removeEventFromSeason() {
             const rows = vals.map((r) => ({
               society_id: SOCIETY_ID,
               season_id: targetSeasonId,
-              competition: COMPETITION,
+              competition: "season",
               name: r.name, total_points: r.totalPoints, events: r.events,
               best_event_points: r.bestEventPoints, best_hole_points: r.bestHolePoints,
               eclectic_total: r.eclecticTotal, best_per_hole: r.bestPerHole,
