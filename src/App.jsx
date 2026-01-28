@@ -2771,6 +2771,7 @@ function Home({
   user,
   handleLogin,
   handleLogout,
+  handleSwitchSociety,
   openPlayersAdmin,
   visiblePlayersCount,
   totalPlayersCount,
@@ -3014,6 +3015,7 @@ function AdminView({
   user,
   handleLogin,
   handleLogout,
+  handleSwitchSociety,
   openPlayersAdmin,
   visiblePlayersCount,
   totalPlayersCount,
@@ -3048,6 +3050,7 @@ function AdminView({
             {!isAdmin ? (
               <button className="btn-primary" onClick={handleLogin}>Sign In</button>
             ) : (
+              <button className="btn-secondary" onClick={handleSwitchSociety}>Switch Society</button>
               <button className="btn-secondary" onClick={handleLogout}>Sign Out</button>
             )}
           </div>
@@ -13563,8 +13566,25 @@ setSeasonRounds(rounds);
     setLoginBusy(false);
   }
 }
+        async function handleSwitchSociety() {
+          // Keeps the Supabase session, but forces AuthGate to rerun so you can pick another society.
+          // (If your AuthGate remembers a selection, you may need to clear its key there too.)
+          try {
+            if (typeof window !== "undefined") {
+              window.__activeSocietyId = "";
+              window.__activeSocietySlug = "";
+              window.__activeSocietyName = "";
+              window.__activeSocietyRole = "";
+            }
+          } catch (e) {}
+          // Hard reload so module-scope tenant constants re-evaluate
+          try { window.location.reload(); } catch (e) {}
+        }
+
         async function handleLogout() {
-          await client.auth.signOut(); setUser(null); alert("Logged out");
+          try { await client.auth.signOut(); } catch (e) {}
+          setUser(null);
+          try { window.location.reload(); } catch (e) { alert("Logged out"); }
         }
 
 async function fetchPlayerVisibility(c) {
@@ -14468,7 +14488,8 @@ return (
                 🧭
               </button>
 {view === "home" && (
-                <Home runSeasonAnalysis={loadAllGamesAndBuildPlayerModel} setView={setView} fileInputRef={fileInputRef} importLocalCSV={importLocalCSV} computed={computedFiltered} addEventToSeason={addEventToSeason} removeEventFromSeason={removeEventFromSeason} clearSeason={clearSeason} user={user} handleLogin={handleLogin} handleLogout={handleLogout} openPlayersAdmin={requestPlayersAdmin} visiblePlayersCount={(seasonModel?.players||[]).length} totalPlayersCount={(adminPlayerRoster||[]).length} />
+                <Home runSeasonAnalysis={loadAllGamesAndBuildPlayerModel} setView={setView} fileInputRef={fileInputRef} importLocalCSV={importLocalCSV} computed={computedFiltered} addEventToSeason={addEventToSeason} removeEventFromSeason={removeEventFromSeason} clearSeason={clearSeason} user={user} handleLogin={handleLogin} handleLogout={handleLogout}
+            handleSwitchSociety={handleSwitchSociety} openPlayersAdmin={requestPlayersAdmin} visiblePlayersCount={(seasonModel?.players||[]).length} totalPlayersCount={(adminPlayerRoster||[]).length} />
               )}
 
 
@@ -14484,6 +14505,7 @@ return (
     user={user}
     handleLogin={handleLogin}
     handleLogout={handleLogout}
+            handleSwitchSociety={handleSwitchSociety}
     openPlayersAdmin={requestPlayersAdmin}
     visiblePlayersCount={(seasonModel?.players||[]).length}
     totalPlayersCount={(adminPlayerRoster||[]).length}
