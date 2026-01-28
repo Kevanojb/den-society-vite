@@ -12271,9 +12271,6 @@ const [user, setUser] = useState(null);
 
 const STANDINGS_TABLE = "standings";
 
-// Default competition per league (used by seasons table + leaderboards)
-const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
-
 // Storage prefix for CSVs inside bucket.
 // Admin player visibility (hide / re-include players)
 const ADMIN_PW_OK_LS_KEY = "den_admin_pw_ok_v1";
@@ -13509,15 +13506,16 @@ setSeasonRounds(rounds);
               const c =
                 (props && props.supabase)
                   ? props.supabase
-                  : ((typeof window !== "undefined" && window.__supabase_client__)
-                  ? window.__supabase_client__)
-                  : createClient(SUPA_URL, SUPA_KEY, {
+                  : (typeof window !== "undefined" && window.__supabase_client__)
+                      ? window.__supabase_client__
+                      : createClient(SUPA_URL, SUPA_KEY, {
                       auth: {
                         persistSession: true,
                         autoRefreshToken: true,
                         detectSessionInUrl: true,
                       },
                     });
+
 
               if (typeof window !== "undefined") window.__supabase_client__ = c;
               if (cancelled) return;
