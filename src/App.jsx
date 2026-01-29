@@ -12245,6 +12245,11 @@ function App(props) {
 
 const [tenantTick, setTenantTick] = useState(0);
 
+
+
+// CSV import metadata (persist event_date to Supabase)
+const [loadedEventDateMs, setLoadedEventDateMs] = useState(null);
+const [loadedEventFileName, setLoadedEventFileName] = useState("");
 // Restore last-resolved tenant (GitHub Pages refresh-safe)
 try {
   if (typeof window !== "undefined" && typeof sessionStorage !== "undefined") {
@@ -14059,7 +14064,15 @@ async function refreshShared(c) {
           setPlayers(parsed.players || []);
           setSelectedPlayer(parsed.players[0]?.name || "");
           setEventName((filename || "").replace(/\.[^.]+$/, ""));
-          if(fileObj) setCurrentFile(fileObj);
+          
+          // Capture event date from CSV for persistence
+          setLoadedEventDateMs(
+            Number.isFinite(parsed?.dateMs)
+              ? parsed.dateMs
+              : (_extractDateMsFromCsvText(text) || null)
+          );
+          setLoadedEventFileName(filename || "");
+if(fileObj) setCurrentFile(fileObj);
           
           autoDetectAndLoadCourse(parsed.courseName || filename).then(found => {
              if (!found) {
@@ -14461,7 +14474,37 @@ async function addEventToSeason() {
             if (!targetSeasonId) {
               targetSeasonId = await ensureSeasonExists(client);
             }
-            const rows = vals.map((r) => ({
+            
+
+            // Persist event metadata (event_date) so historical CSVs stay in the correct season after reload
+            try {
+              const ms = Number.isFinite(loadedEventDateMs) ? loadedEventDateMs : null;
+              const fileName = (currentFile && currentFile.name) ? currentFile.name : (loadedEventFileName || "");
+              if (ms && fileName) {
+                const event_date = new Date(ms).toISOString().slice(0, 10); // YYYY-MM-DD
+                const storage_path = `${PREFIX}/${fileName}`;
+                await client.from("events").upsert(
+                  [{
+                    society_id: SOCIETY_ID,
+                    competition: COMPETITION,
+                    season_id: targetSeasonId,
+                    event_name: (fileName || "").replace(/\.[^.]+$/, ""),
+                    storage_bucket: BUCKET,
+                    storage_path,
+                    event_date,
+                  }],
+                  { onConflict: "society_id,competition,season_id,storage_path" }
+                );
+              } else if (!ms) {
+                console.warn("No event_date detected for this CSV; events table not updated.");
+              } else if (!fileName) {
+                console.warn("No file name available; events table not updated.");
+              }
+            } catch (e) {
+              console.error("Failed to save event metadata to events table:", e);
+            }
+
+const rows = vals.map((r) => ({
               society_id: SOCIETY_ID,
               season_id: targetSeasonId,
               competition: COMPETITION,
