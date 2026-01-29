@@ -14030,6 +14030,16 @@ async function refreshShared(c) {
           setSelectedPlayer(parsed.players[0]?.name || "");
           setEventName(item.name);
           setCurrentFile(null);
+
+          // Capture event date + filename even when loading from Storage (so Add-to-Season can persist to Supabase)
+          try {
+            const ms =
+              Number.isFinite(parsed?.dateMs)
+                ? parsed.dateMs
+                : (_extractDateMsFromCsvText(text) || _extractDateMsFromPath(item.path) || null);
+            setLoadedEventDateMs(Number.isFinite(ms) ? ms : null);
+          } catch { setLoadedEventDateMs(null); }
+          setLoadedEventFileName(item?.name || String(item?.path || "").split("/").pop() || "");
           
           const dbCourseFound = await autoDetectAndLoadCourse(parsed.courseName || item.file);
           if (!dbCourseFound) {
@@ -14467,9 +14477,9 @@ async function addEventToSeason() {
           setSeason(next);
           if (client) {
             const vals = Object.values(next).filter((r) => !isTeamLike(r.name));
-            let targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
-              ? String(seasonYear)
-              : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
+            let targetSeasonId = (leagueSeasonYear && String(leagueSeasonYear).toLowerCase() !== \"all\")
+              ? String(leagueSeasonYear)
+              : (seasonsDef.find((x) => x && x.is_active)?.season_id || \"\");
 
             if (!targetSeasonId) {
               targetSeasonId = await ensureSeasonExists(client);
@@ -14483,7 +14493,7 @@ async function addEventToSeason() {
               if (ms && fileName) {
                 const event_date = new Date(ms).toISOString().slice(0, 10); // YYYY-MM-DD
                 const storage_path = `${PREFIX}/${fileName}`;
-                await client.from("events").upsert(
+                const evRes = await client.from("events").upsert(
                   [{
                     society_id: SOCIETY_ID,
                     competition: COMPETITION,
@@ -14495,6 +14505,10 @@ async function addEventToSeason() {
                   }],
                   { onConflict: "society_id,competition,season_id,storage_path" }
                 );
+                if (evRes?.error) {
+                  console.error("events upsert failed", evRes.error);
+                  toast("Events insert failed: " + evRes.error.message);
+                }
               } else if (!ms) {
                 console.warn("No event_date detected for this CSV; events table not updated.");
               } else if (!fileName) {
@@ -14522,9 +14536,9 @@ if (res.error) toast("Error: " + res.error.message);
         }
 
         async function removeEventFromSeason() {
-          const targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
-            ? String(seasonYear)
-            : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
+          const targetSeasonId = (leagueSeasonYear && String(leagueSeasonYear).toLowerCase() !== \"all\")
+              ? String(leagueSeasonYear)
+              : (seasonsDef.find((x) => x && x.is_active)?.season_id || \"\");
           if (!targetSeasonId) { toast("Select a season first"); return; }
 
           if (!computed.length) { toast("Load an event first"); return; }
@@ -14542,9 +14556,9 @@ if (res.error) toast("Error: " + res.error.message);
           setSeason(next);
           if (client) {
             const vals = Object.values(next).filter((r) => !isTeamLike(r.name));
-            const targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
-              ? String(seasonYear)
-              : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
+            const targetSeasonId = (leagueSeasonYear && String(leagueSeasonYear).toLowerCase() !== \"all\")
+              ? String(leagueSeasonYear)
+              : (seasonsDef.find((x) => x && x.is_active)?.season_id || \"\");
             if (!targetSeasonId) { toast("Select a season first"); return; }
             const rows = vals.map((r) => ({
               society_id: SOCIETY_ID,
@@ -14563,9 +14577,9 @@ if (res.error) toast("Error: " + res.error.message);
         async function clearSeason() {
           if (!client) { toast("No client"); return; }
 
-          const targetSeasonId = (seasonYear && String(seasonYear).toLowerCase() !== "all")
-            ? String(seasonYear)
-            : (seasonsDef.find((x) => x && x.is_active)?.season_id || "");
+          const targetSeasonId = (leagueSeasonYear && String(leagueSeasonYear).toLowerCase() !== \"all\")
+              ? String(leagueSeasonYear)
+              : (seasonsDef.find((x) => x && x.is_active)?.season_id || \"\");
 
           if (!targetSeasonId) { toast("Select a season first"); return; }
 
