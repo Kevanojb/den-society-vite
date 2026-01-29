@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPER_ADMIN_EMAILS = ["kevanojb@icloud.com"]; // global admin(s)
 
+
 // Back-compat league labels (some components reference these)
 let LEAGUE_SLUG = "";
 let LEAGUE_TITLE = "";
@@ -12274,10 +12275,11 @@ useEffect(() => {
               });
         if (typeof window !== "undefined") window.__supabase_client__ = c;
 
-        // Fetch society by slug (take first match if duplicates exist, avoids PostgREST single() crash).
+        // Fetch society by slug from the PUBLIC tenant table (take first match if duplicates exist,
+        // avoids PostgREST single() crash).
         const { data, error } = await c
-          .from("societies")
-          .select("id,slug,name")
+          .from("societies_public")
+          .select("id,name,slug")
           .eq("slug", slugFromUrl)
           .limit(1)
           .maybeSingle();
