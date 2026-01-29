@@ -6,8 +6,8 @@ const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const LS_ACTIVE_SOCIETY = "den_active_society_id_v1";
 
-// GitHub Pages base
-const GH_PAGES_BASE = "/den-society-vite/";
+// GitHub Pages base (repo name)
+const GH_PAGES_BASE = "/golf/";
 const SITE_ORIGIN = "https://kevanojb.github.io";
 const SITE_URL = `${SITE_ORIGIN}${GH_PAGES_BASE}`;
 
@@ -38,7 +38,7 @@ function slugify(s) {
 }
 
 // For GH Pages, pathname includes the repo base path.
-// Example: "/den-society-vite/den" => slug "den"
+// Example: "/golf/den" => slug "den"
 function getSlugFromPath() {
   try {
     const path = window.location.pathname || "/";
@@ -77,7 +77,10 @@ function AdminSignInSheet({ open, onClose, email, setEmail, busy, msg, onSubmit 
             <div className="text-lg font-extrabold text-neutral-900">Admin sign in</div>
             <div className="text-xs text-neutral-500">We’ll email you a magic link.</div>
           </div>
-          <button className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 font-bold" onClick={onClose}>
+          <button
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 font-bold"
+            onClick={onClose}
+          >
             ✕
           </button>
         </div>
@@ -124,21 +127,19 @@ function AdminSignInSheet({ open, onClose, email, setEmail, busy, msg, onSubmit 
   );
 }
 
-
 function getSocietySlugFromUrl() {
   try {
     const path = window.location.pathname || "/";
     const hash = window.location.hash || "";
 
-    // 1) Hash router (GitHub Pages): "#/slug/anything"
-    //    Also handle "#slug" just in case.
+    // 1) Hash router: "#/slug/anything" (or "#slug")
     if (hash) {
       const cleaned = hash.startsWith("#/") ? hash.slice(2) : hash.startsWith("#") ? hash.slice(1) : hash;
       const seg = cleaned.split("/").filter(Boolean)[0] || "";
       if (seg) return String(seg);
     }
 
-    // 2) Non-hash routes: "/den-society-vite/slug/anything"
+    // 2) Non-hash routes: "/golf/slug/anything"
     if (!path.startsWith(GH_PAGES_BASE)) return "";
     const rest = path.slice(GH_PAGES_BASE.length);
     const seg = rest.split("/").filter(Boolean)[0] || "";
@@ -225,32 +226,46 @@ export default function AuthGate() {
     }
 
     let cancelled = false;
+
     async function loadPublicSociety() {
       setPublicLoading(true);
       setMsg("");
+
       try {
+        // IMPORTANT:
+        // .single() throws "Cannot coerce the result..." when 0 rows or >1 rows.
+        // maybeSingle() is resilient and lets us show a clean message instead.
         const { data, error } = await client
           .from("societies")
           .select("id, name, slug, viewer_enabled")
           .eq("slug", slug)
-          .single();
+          .limit(1)
+          .maybeSingle();
 
         if (error) throw error;
-        
-        // Extra safety: even if RLS is loose, only allow public view when explicitly enabled.
-        if (data && data.viewer_enabled === false) {
+
+        if (!data) {
+          // slug doesn't exist (or filtered by RLS)
+          if (!cancelled) setPublicSociety(null);
+          return;
+        }
+
+        // Only allow public view when explicitly enabled.
+        if (data.viewer_enabled === false) {
           throw new Error("This society is not publicly viewable.");
         }
-if (!cancelled) setPublicSociety(data || null);
-	    } catch (e) {
-	        const raw = e?.message || String(e);
-	        const code = e?.code || e?.error_code;
-	        const status = e?.status || e?.statusCode;
-	        const isRlsDenied = /permission denied/i.test(raw) || code === "42501" || status === 401;
-	        // Don't surface RLS errors to anonymous visitors; just treat as "not public" until they sign in.
-	        if (!cancelled && !isRlsDenied) setMsg(raw);
-	        if (!cancelled) setPublicSociety(null);
-	      } finally {
+
+        if (!cancelled) setPublicSociety(data);
+      } catch (e) {
+        const raw = e?.message || String(e);
+        const code = e?.code || e?.error_code;
+        const status = e?.status || e?.statusCode;
+        const isRlsDenied = /permission denied/i.test(raw) || code === "42501" || status === 401;
+
+        // Don't surface RLS errors to anonymous visitors; just treat as "not public".
+        if (!cancelled && !isRlsDenied) setMsg(raw);
+        if (!cancelled) setPublicSociety(null);
+      } finally {
         if (!cancelled) setPublicLoading(false);
       }
     }
@@ -305,14 +320,13 @@ if (!cancelled) setPublicSociety(data || null);
       let pick =
         preferSocietyId && ids.includes(String(preferSocietyId)) ? String(preferSocietyId) : "";
 
-      // If the URL includes a society slug (e.g. /den-society-vite/sportsmans-classic),
+      // If the URL includes a society slug (e.g. /golf/sportsmans-classic),
       // prefer that society over the remembered selection.
       const wantedSlug = String(preferSocietySlug || getSocietySlugFromUrl() || "");
       if (!pick && wantedSlug) {
         const bySlug = socs.find((x) => String(x.slug || "") === wantedSlug);
         if (bySlug && ids.includes(String(bySlug.id))) pick = String(bySlug.id);
       }
-
 
       if (!pick && activeSocietyId && ids.includes(String(activeSocietyId))) pick = String(activeSocietyId);
 
@@ -403,10 +417,13 @@ if (!cancelled) setPublicSociety(data || null);
 
     setBusy(true);
     try {
+      const currentSlug = getSlugFromPath();
+      const redirectTo = currentSlug ? `${SITE_URL}${currentSlug}` : SITE_URL;
+
       const { error } = await client.auth.signInWithOtp({
         email: em,
         options: {
-          emailRedirectTo: SITE_URL,
+          emailRedirectTo: redirectTo,
           shouldCreateUser: true,
         },
       });
@@ -502,7 +519,7 @@ if (!cancelled) setPublicSociety(data || null);
               activeSocietyId={String(publicSociety.id)}
               activeSocietySlug={publicSociety.slug || ""}
               activeSocietyName={publicSociety.name || ""}
-              activeSocietyRole={"player"}
+              activeSocietyRole={"viewer"}
             />
           </React.Suspense>
 
