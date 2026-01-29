@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <title>Redirecting…</title>
     <script>
-      // GitHub Pages SPA redirect for /golf (project site)
-      // Redirect unknown routes back to /golf/ while preserving the path in ?p=
+      // GitHub Pages SPA redirect for /golf
+      // Any unknown route under /golf/* is redirected to /golf/?p=<original-path>
       (function () {
         var l = window.location;
         var base = "/golf";
 
-        // Preserve the attempted path *after* /golf
-        var rest = l.pathname.indexOf(base + "/") === 0 ? l.pathname.slice(base.length) : l.pathname;
+        // keep everything after /golf
+        var rest = l.pathname.indexOf(base) === 0 ? l.pathname.slice(base.length) : l.pathname;
 
         var target =
           l.origin +
