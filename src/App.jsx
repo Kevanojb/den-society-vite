@@ -14481,7 +14481,16 @@ if (res.error) toast("Error: " + res.error.message);
             });
           } catch (e) { return players; }
         }, [players, hiddenKeySet]);
-return (
+
+        // Global "super admin" (optional). This is separate from per-society memberships.
+        // If the signed-in user's email is in SUPER_ADMIN_EMAILS, they get full capabilities in the UI.
+        const isSuperAdmin = React.useMemo(() => {
+          const email = (user?.email || "").toLowerCase();
+          if (!email) return false;
+          return (SUPER_ADMIN_EMAILS || []).map((e) => String(e).toLowerCase()).includes(email);
+        }, [user?.email]);
+
+	return (
           <div className="min-h-screen p-4 sm:p-6 bg-neutral-50">
             <div className="app-shell space-y-4 pt-1">
               <Header leagueHeaderTitle={LEAGUE_HEADER_TITLE} eventName={eventName} statusMsg={statusMsg} courseName={courseName} view={view} setView={setView} />
