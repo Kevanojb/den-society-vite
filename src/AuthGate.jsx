@@ -313,9 +313,7 @@ React.useEffect(() => {
 
         if (!cancelled && !isRlsDenied) setMsg(raw);
         if (!cancelled) setPublicSociety(null);
-      } catch (ex) {
-      setMsg(ex?.message || String(ex));
-    } finally {
+      } finally {
         if (!cancelled) setPublicLoading(false);
       }
     }
