@@ -602,7 +602,7 @@ React.useEffect(() => {
 
     (async () => {
       try {
-        await createSocietyAfterSignIn(userId);
+        await createSocietyAfterSignIn();
       } catch (ex) {
         setMsg(ex?.message || String(ex));
       }
@@ -711,7 +711,9 @@ async function sendCreateSocietyLink(e) {
     } catch {}
   }
 
-  async function createSocietyAfterSignIn(pending) {
+  async function createSocietyAfterSignIn() {
+    const pending = readPendingCreate();
+    if (!pending) return;
     const name = String(pending?.society_name || "").trim();
     const code = String(pending?.invite_code || "").trim();
     const slug = String(pending?.society_slug || slugify(name) || "").trim();
@@ -806,7 +808,7 @@ if (!newId) throw new Error("Society create failed (no id returned).");
     const pending = readPendingCreate();
     if (!pending) return;
 
-    createSocietyAfterSignIn(pending).catch((ex) => {
+    createSocietyAfterSignIn().catch((ex) => {
       setMsg(ex?.message || String(ex));
       // keep pending so they can retry
     });
@@ -901,7 +903,7 @@ async function createSeasonForSociety(e) {
     // No valid slug => root landing (sign in OR create society)
     return (
       <CenterCard>
-        <div className="text-2xl font-black text-neutral-900">Golf Leagues</div>
+        <div className="text-2xl font-black text-neutral-900">Den Golf Leagues</div>
         <div className="text-sm text-neutral-600 mt-2">Sign in as a captain, or create your own society.</div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1102,7 +1104,7 @@ if (postLoginChoice) {
         setMsg("");
         setPostLoginChoice(false);
         try {
-          await createSocietyAfterSignIn(session.user.id);
+          await createSocietyAfterSignIn();
         } catch (ex) {
           setMsg(ex?.message || String(ex));
         }
