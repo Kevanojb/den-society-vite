@@ -48,6 +48,39 @@ function slugify(s) {
     .replace(/(^-|-$)/g, "");
 }
 
+
+function getPendingCreate() {
+  try {
+    const raw = localStorage.getItem(LS_PENDING_CREATE);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function setPendingCreate(obj) {
+  try {
+    localStorage.setItem(LS_PENDING_CREATE, JSON.stringify(obj || null));
+  } catch {}
+}
+function clearPendingCreate() {
+  try {
+    localStorage.removeItem(LS_PENDING_CREATE);
+  } catch {}
+}
+function setPostLoginIntent(v) {
+  try {
+    if (v) localStorage.setItem(LS_POST_LOGIN_INTENT, String(v));
+    else localStorage.removeItem(LS_POST_LOGIN_INTENT);
+  } catch {}
+}
+function getPostLoginIntent() {
+  try {
+    return localStorage.getItem(LS_POST_LOGIN_INTENT) || "";
+  } catch {
+    return "";
+  }
+}
+
 // For GH Pages, pathname includes the repo base path.
 // Example: "/golf/den" => slug "den"
 function getSlugFromPath() {
@@ -139,6 +172,142 @@ function AdminSignInSheet({ open, onClose, email, setEmail, busy, msg, onSubmit 
         </form>
       </div>
     </div>
+  );
+}
+
+
+function PostLoginChoiceCard({
+  email,
+  societies,
+  onChooseCreateSociety,
+  onChooseCreateSeason,
+  onCancel,
+  pending,
+}) {
+  return (
+    <CenterCard>
+      <div className="text-xs font-black tracking-widest uppercase text-neutral-400">
+        Welcome back
+      </div>
+      <div className="text-lg font-black text-neutral-900 mt-1">{email}</div>
+
+      <div className="mt-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800">
+        You already belong to {societies.length} societ{societies.length === 1 ? "y" : "ies"}.
+        What would you like to do?
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <button
+          className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold"
+          onClick={onChooseCreateSociety}
+        >
+          Create a new society
+        </button>
+
+        <button
+          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={onChooseCreateSeason}
+        >
+          Create a new season/competition in an existing society
+        </button>
+
+        <button
+          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+
+      <div className="mt-4 text-xs text-neutral-500">
+        Pending setup: <span className="font-mono">{pending?.society_name || ""}</span>
+        {pending?.first_season_name ? (
+          <> · <span className="font-mono">{pending.first_season_name}</span></>
+        ) : null}
+      </div>
+    </CenterCard>
+  );
+}
+
+function CreateSeasonCard({
+  email,
+  societies,
+  valueSocietyId,
+  setValueSocietyId,
+  seasonLabel,
+  setSeasonLabel,
+  msg,
+  busy,
+  onCreate,
+  onBack,
+}) {
+  return (
+    <CenterCard>
+      <div className="text-2xl font-black text-neutral-900">Create season</div>
+      <div className="text-sm text-neutral-600 mt-2">
+        Choose a society and enter a season/competition label.
+      </div>
+
+      <div className="mt-3 text-xs text-neutral-500">{email}</div>
+
+      {(!societies || societies.length === 0) ? (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          You’re not a captain of any existing society, so you can’t create a season here.
+        </div>
+      ) : null}
+
+      <form className="mt-4 space-y-3" onSubmit={onCreate}>
+        <div>
+          <label className="block text-xs font-bold text-neutral-700 mb-1">Society</label>
+          <select
+            className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+            value={valueSocietyId}
+            onChange={(e) => setValueSocietyId(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {societies.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.name || s.slug || s.id}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-neutral-700 mb-1">Season / Competition</label>
+          <input
+            className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+            value={seasonLabel}
+            onChange={(e) => setSeasonLabel(e.target.value)}
+            placeholder="e.g. 2026, Winter 25/26"
+          />
+        </div>
+
+        {msg ? (
+          <div className="text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
+            {msg}
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+            onClick={onBack}
+            disabled={busy}
+          >
+            Back
+          </button>
+          <button
+            type="submit"
+            className="rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60"
+            disabled={busy}
+          >
+            {busy ? "Creating…" : "Create season"}
+          </button>
+        </div>
+      </form>
+    </CenterCard>
   );
 }
 
@@ -234,6 +403,12 @@ export default function AuthGate() {
   const [newSocietySlug, setNewSocietySlug] = React.useState("");
   const [newSeasonLabel, setNewSeasonLabel] = React.useState("");
   const [creating, setCreating] = React.useState(false);
+
+const [postLoginChoice, setPostLoginChoice] = React.useState(false);
+const [createSeasonMode, setCreateSeasonMode] = React.useState(false);
+const [seasonSocietyId, setSeasonSocietyId] = React.useState("");
+const [seasonLabel, setSeasonLabel] = React.useState("");
+const [seasonBusy, setSeasonBusy] = React.useState(false);
 
   const [autoCreating, setAutoCreating] = React.useState(false);
 
@@ -414,6 +589,33 @@ React.useEffect(() => {
     run();
   }, [envOk, session?.user?.id, publicSociety?.id, loadTenant]);
 
+// Post-login intent handler for onboarding flow
+React.useEffect(() => {
+  if (!envOk) return;
+  const userId = session?.user?.id;
+  if (!userId) return;
+
+  const intent = getPostLoginIntent();
+  const pending = getPendingCreate();
+  const onboardingHere = isOnboardForced() || !getSlugFromPath();
+
+  if (intent === "onboard_create" && pending && onboardingHere) {
+    if (memberships.length > 0) {
+      setPostLoginChoice(true);
+      return;
+    }
+
+    (async () => {
+      try {
+        await createSocietyAfterSignIn(userId);
+      } catch (ex) {
+        setMsg(ex?.message || String(ex));
+      }
+    })();
+  }
+}, [envOk, session?.user?.id, memberships.length]);
+
+
   // persist selection
   React.useEffect(() => {
     try {
@@ -479,6 +681,34 @@ React.useEffect(() => {
       setBusy(false);
     }
   }
+
+
+async function sendCreateSocietyLink(e) {
+  e.preventDefault();
+  setMsg("");
+
+  const em = (email || "").trim();
+  const name = (newSocietyName || "").trim();
+  const code = (inviteCode || "").trim();
+  const slug = ((newSocietySlug || "") || slugify(name)).trim();
+  const season = (seasonLabel || "").trim();
+
+  if (!em) return setMsg("Enter your email.");
+  if (!name) return setMsg("Enter a society name.");
+  if (!code) return setMsg("Enter your invite code.");
+  if (!season) return setMsg("Enter a season/competition name.");
+
+  setPendingCreate({
+    society_name: name,
+    society_slug: slug,
+    invite_code: code,
+    first_season_name: season,
+    created_at: Date.now(),
+  });
+
+  const redirectTo = `${SITE_URL}?onboard=1`;
+  await sendMagicLinkWithRedirect(e, redirectTo, "onboard_create");
+}
 
   async function signOut() {
     try {
@@ -586,6 +816,42 @@ if (!newId) throw new Error("Society create failed (no id returned).");
       // keep pending so they can retry
     });
   }, [session?.user?.id, memberships.length, tenantLoading, autoCreating]);
+
+
+async function createSeasonForSociety(e) {
+  e.preventDefault();
+  setMsg("");
+
+  const sid = String(seasonSocietyId || "");
+  const label = (seasonLabel || "").trim();
+
+  if (!sid) return setMsg("Choose a society.");
+  if (!label) return setMsg("Enter a season/competition name.");
+
+  setSeasonBusy(true);
+  try {
+    const { error } = await client.from("seasons").insert({
+      society_id: sid,
+      competition: "season",
+      label,
+    });
+
+    if (error) throw error;
+
+    setActiveSocietyId(sid);
+    try { localStorage.setItem(LS_ACTIVE_SOCIETY, sid); } catch {}
+    setCreateSeasonMode(false);
+    setPostLoginChoice(false);
+
+    const soc = (societies || []).find((s) => String(s.id) === sid);
+    const slug = soc?.slug ? String(soc.slug) : "";
+    if (slug) window.location.replace(`${SITE_URL}${slug}`);
+  } catch (ex) {
+    setMsg(ex?.message || String(ex));
+  } finally {
+    setSeasonBusy(false);
+  }
+}
 
   if (!envOk) {
     return (
@@ -829,6 +1095,70 @@ if (!newId) throw new Error("Society create failed (no id returned).");
   const options = (societies || [])
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+// If the user came here via "Create society" but already has societies, ask what they want to do.
+if (postLoginChoice) {
+  const pending = getPendingCreate();
+  return (
+    <PostLoginChoiceCard
+      email={session.user.email}
+      societies={options}
+      pending={pending}
+      onChooseCreateSociety={async () => {
+        setMsg("");
+        setPostLoginChoice(false);
+        try {
+          await createSocietyAfterSignIn(session.user.id);
+        } catch (ex) {
+          setMsg(ex?.message || String(ex));
+        }
+      }}
+      onChooseCreateSeason={() => {
+        setMsg("");
+        setCreateSeasonMode(true);
+        setPostLoginChoice(false);
+      }}
+      onCancel={() => {
+        setMsg("");
+        clearPendingCreate();
+        setPostLoginIntent("");
+        setPostLoginChoice(false);
+      }}
+    />
+  );
+}
+
+if (createSeasonMode) {
+  return (
+    <CreateSeasonCard
+      email={session.user.email}
+      societies={options}
+      valueSocietyId={seasonSocietyId}
+      setValueSocietyId={setSeasonSocietyId}
+      seasonLabel={seasonLabel}
+      setSeasonLabel={setSeasonLabel}
+      msg={msg}
+      busy={seasonBusy}
+      onCreate={createSeasonForSociety}
+      onBack={() => {
+        setMsg("");
+        setCreateSeasonMode(false);
+        setPostLoginChoice(true);
+      }}
+    />
+  );
+}
+
+
+
+const captainSocietyIds = new Set(
+  (memberships || [])
+    .filter((m) => String(m.role || "") === "captain")
+    .map((m) => String(m.society_id))
+);
+
+const captainOptions = options.filter((s) => captainSocietyIds.has(String(s.id)));
+
+
 
   if (pickerOpen) {
     return (
@@ -883,3 +1213,34 @@ if (!newId) throw new Error("Society create failed (no id returned).");
     </React.Suspense>
   );
 }
+async function sendMagicLinkWithRedirect(e, redirectTo, intent) {
+  e?.preventDefault?.();
+  setMsg("");
+
+  const em = (email || "").trim();
+  if (!em) {
+    setMsg("Enter your email.");
+    return;
+  }
+
+  setBusy(true);
+  try {
+    setPostLoginIntent(intent || "");
+    const { error } = await client.auth.signInWithOtp({
+      email: em,
+      options: {
+        emailRedirectTo: redirectTo,
+        shouldCreateUser: true,
+      },
+    });
+
+    if (error) throw error;
+    setMsg("Magic link sent ✓ Check your email");
+  } catch (ex) {
+    setMsg(ex?.message || String(ex));
+  } finally {
+    setBusy(false);
+  }
+}
+
+
