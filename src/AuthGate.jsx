@@ -901,7 +901,7 @@ async function createSeasonForSociety(e) {
     // No valid slug => root landing (sign in OR create society)
     return (
       <CenterCard>
-        <div className="text-2xl font-black text-neutral-900">Den Golf Leagues</div>
+        <div className="text-2xl font-black text-neutral-900">Golf Leagues</div>
         <div className="text-sm text-neutral-600 mt-2">Sign in as a captain, or create your own society.</div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
