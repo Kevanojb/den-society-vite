@@ -7,7 +7,6 @@ const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const GH_PAGES_BASE = "/golf/";
 const SITE_ORIGIN = "https://kevanojb.github.io";
 const SITE_URL = `${SITE_ORIGIN}${GH_PAGES_BASE}`;
-
 const LS_ACTIVE_SOCIETY = "den_active_society_id_v1";
 
 const AppLazy = React.lazy(() => import("./App.jsx"));
