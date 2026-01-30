@@ -7,6 +7,7 @@ const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const GH_PAGES_BASE = "/golf/";
 const SITE_ORIGIN = "https://kevanojb.github.io";
 const SITE_URL = `${SITE_ORIGIN}${GH_PAGES_BASE}`;
+
 const LS_ACTIVE_SOCIETY = "den_active_society_id_v1";
 
 const AppLazy = React.lazy(() => import("./App.jsx"));
@@ -62,18 +63,92 @@ function setGlobals({ client, societyId, societySlug, societyName, role }) {
   window.__activeSocietyRole = String(role || "");
 }
 
+function InfoBox({ children }) {
+  return (
+    <div className="text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
+      {children}
+    </div>
+  );
+}
+
+function UpdatePasswordScreen({ supabase, onDone }) {
+  const [pw1, setPw1] = React.useState("");
+  const [pw2, setPw2] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    setMsg("");
+
+    if (!pw1 || pw1.length < 8) return setMsg("Password must be at least 8 characters.");
+    if (pw1 !== pw2) return setMsg("Passwords don’t match.");
+
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pw1 });
+      if (error) throw error;
+
+      setMsg("Password updated ✓");
+      setTimeout(() => onDone?.(), 600);
+    } catch (ex) {
+      setMsg(ex?.message || String(ex));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <CenterCard>
+      <div className="text-2xl font-black text-neutral-900">Set a password</div>
+      <div className="text-sm text-neutral-600 mt-2">Choose a new password for email+password login.</div>
+
+      <form className="mt-4 space-y-3" onSubmit={submit}>
+        <input
+          className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+          type="password"
+          placeholder="New password"
+          value={pw1}
+          onChange={(e) => setPw1(e.target.value)}
+        />
+        <input
+          className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
+          type="password"
+          placeholder="Confirm new password"
+          value={pw2}
+          onChange={(e) => setPw2(e.target.value)}
+        />
+
+        {msg ? <InfoBox>{msg}</InfoBox> : null}
+
+        <button className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60" disabled={busy}>
+          {busy ? "Updating…" : "Update password"}
+        </button>
+
+        <button
+          type="button"
+          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
+          onClick={() => onDone?.()}
+          disabled={busy}
+        >
+          Back to portal
+        </button>
+      </form>
+    </CenterCard>
+  );
+}
+
 export default function Bootstrap() {
   const envOk = Boolean(SUPA_URL && SUPA_KEY);
 
   const [client] = React.useState(() =>
     createClient(SUPA_URL, SUPA_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
   );
+
+const hash = window.location.hash || "";
+const isUpdatePw = hash.startsWith("#/update-password");
 
   React.useEffect(() => {
     normalizeGolfRoot();
@@ -84,9 +159,14 @@ export default function Bootstrap() {
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState("");
 
+  // View society input (root portal)
+  const [viewSlug, setViewSlug] = React.useState("");
+
   // Public society mode
   const [publicLoading, setPublicLoading] = React.useState(false);
   const [publicSociety, setPublicSociety] = React.useState(null);
+  const [publicRole, setPublicRole] = React.useState("viewer"); // viewer | player | captain
+  const [publicRoleLoading, setPublicRoleLoading] = React.useState(false);
 
   // Captain portal data
   const [loadingPortal, setLoadingPortal] = React.useState(false);
@@ -94,11 +174,7 @@ export default function Bootstrap() {
   const [societies, setSocieties] = React.useState([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [activeSocietyId, setActiveSocietyId] = React.useState(() => {
-    try {
-      return localStorage.getItem(LS_ACTIVE_SOCIETY) || "";
-    } catch {
-      return "";
-    }
+    try { return localStorage.getItem(LS_ACTIVE_SOCIETY) || ""; } catch { return ""; }
   });
 
   // Create society UI
@@ -117,22 +193,17 @@ export default function Bootstrap() {
   // Track session
   React.useEffect(() => {
     if (!envOk) return;
-
     client.auth.getSession().then(({ data }) => setSession(data?.session || null));
     const { data: sub } = client.auth.onAuthStateChange((_evt, s) => setSession(s || null));
-    return () => {
-      try {
-        sub?.subscription?.unsubscribe?.();
-      } catch {}
-    };
+    return () => { try { sub?.subscription?.unsubscribe?.(); } catch {} };
   }, [client, envOk]);
 
-  // Public view: if URL includes slug, load as viewer (no login required)
+  const slugInUrl = getSlugFromPath();
+
+  // Load society by slug (viewer page) regardless of login
   React.useEffect(() => {
     if (!envOk) return;
-
-    const slug = getSlugFromPath();
-    if (!slug) {
+    if (!slugInUrl) {
       setPublicSociety(null);
       return;
     }
@@ -145,20 +216,13 @@ export default function Bootstrap() {
         const { data, error } = await client
           .from("societies")
           .select("id, name, slug, viewer_enabled")
-          .eq("slug", slug)
+          .eq("slug", slugInUrl)
           .limit(1)
           .maybeSingle();
 
         if (error) throw error;
-        if (!data) {
-          if (!cancelled) setPublicSociety(null);
-          return;
-        }
-
-        if (data.viewer_enabled === false) {
-          throw new Error("This society is not publicly viewable.");
-        }
-
+        if (!data) { if (!cancelled) setPublicSociety(null); return; }
+        if (data.viewer_enabled === false) throw new Error("This society is not publicly viewable.");
         if (!cancelled) setPublicSociety(data);
       } catch (e) {
         const raw = e?.message || String(e);
@@ -172,17 +236,45 @@ export default function Bootstrap() {
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [client, envOk]);
+    return () => { cancelled = true; };
+  }, [client, envOk, slugInUrl]);
 
-  // Captain portal load (only when logged in, and only on /golf root)
+  // If logged in on a slug page, figure out whether they're captain/player for THAT society
   React.useEffect(() => {
     if (!envOk) return;
-    const slug = getSlugFromPath();
-    if (slug) return; // slug routes are public viewer routes (or captain inside App)
+    if (!slugInUrl) return;
+    if (!session?.user?.id) { setPublicRole("viewer"); return; }
+    if (!publicSociety?.id) return;
 
+    let cancelled = false;
+    (async () => {
+      setPublicRoleLoading(true);
+      try {
+        const { data, error } = await client
+          .from("memberships")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .eq("society_id", publicSociety.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (cancelled) return;
+        setPublicRole(data?.role || "viewer");
+      } catch {
+        if (!cancelled) setPublicRole("viewer");
+      } finally {
+        if (!cancelled) setPublicRoleLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [client, envOk, slugInUrl, session?.user?.id, publicSociety?.id]);
+
+  // Captain portal load (only when logged in on /golf root)
+  React.useEffect(() => {
+    if (!envOk) return;
+    if (slugInUrl) return; // not the portal page
     const userId = session?.user?.id;
     if (!userId) return;
 
@@ -198,11 +290,10 @@ export default function Bootstrap() {
         setMemberships(mem);
 
         const ids = mem.map((x) => x.society_id).filter(Boolean).map(String);
-
         if (!ids.length) {
           setSocieties([]);
           setPickerOpen(false);
-          setCreateOpen(true); // no societies -> straight to create
+          setCreateOpen(true); // straight to create for first-time captains
           return;
         }
 
@@ -212,7 +303,6 @@ export default function Bootstrap() {
         if (cancelled) return;
         setSocieties(socs);
 
-        // pick remembered society or open picker
         let pick = "";
         if (activeSocietyId && ids.includes(String(activeSocietyId))) pick = String(activeSocietyId);
         if (!pick && ids.length === 1) pick = ids[0];
@@ -225,11 +315,9 @@ export default function Bootstrap() {
         if (!pick) pick = ids[0];
 
         setActiveSocietyId(String(pick));
-        try {
-          localStorage.setItem(LS_ACTIVE_SOCIETY, String(pick));
-        } catch {}
+        try { localStorage.setItem(LS_ACTIVE_SOCIETY, String(pick)); } catch {}
 
-        // jump straight into society app when possible
+        // Default action: take them into their last society
         const soc = socs.find((x) => String(x.id) === String(pick));
         if (soc?.slug) window.location.replace(`${SITE_URL}${soc.slug}`);
       } catch (ex) {
@@ -239,10 +327,8 @@ export default function Bootstrap() {
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [client, envOk, session?.user?.id, activeSocietyId]);
+    return () => { cancelled = true; };
+  }, [client, envOk, slugInUrl, session?.user?.id, activeSocietyId]);
 
   async function sendMagicLink(e) {
     e.preventDefault();
@@ -255,10 +341,7 @@ export default function Bootstrap() {
     try {
       const { error } = await client.auth.signInWithOtp({
         email: em,
-        options: {
-          emailRedirectTo: SITE_URL, // always back to /golf/
-          shouldCreateUser: true,
-        },
+        options: { emailRedirectTo: SITE_URL, shouldCreateUser: true },
       });
       if (error) throw error;
       setMsg("Magic link sent ✓ Check your email");
@@ -270,9 +353,7 @@ export default function Bootstrap() {
   }
 
   async function signOut() {
-    try {
-      await client.auth.signOut();
-    } catch {}
+    try { await client.auth.signOut(); } catch {}
   }
 
   async function createSociety(e) {
@@ -291,7 +372,6 @@ export default function Bootstrap() {
 
     setCreating(true);
     try {
-      // 1) Create society
       const insSoc = await client
         .from("societies")
         .insert({ name, slug, viewer_enabled: true })
@@ -303,14 +383,12 @@ export default function Bootstrap() {
       const newSoc = insSoc.data;
       const sid = String(newSoc.id);
 
-      // 2) Make creator captain
       const insMem = await client
         .from("memberships")
         .insert({ society_id: sid, user_id: userId, role: "captain" });
 
       if (insMem.error) throw insMem.error;
 
-      // 3) Create first season (supports schemas that require season_id/start_date/end_date)
       const today = new Date();
       const start = today.toISOString().slice(0, 10);
       const endDate = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000);
@@ -328,17 +406,19 @@ export default function Bootstrap() {
 
       if (insSeason.error) throw insSeason.error;
 
-      // Remember and redirect
-      try {
-        localStorage.setItem(LS_ACTIVE_SOCIETY, sid);
-      } catch {}
-
+      try { localStorage.setItem(LS_ACTIVE_SOCIETY, sid); } catch {}
       window.location.replace(`${SITE_URL}${newSoc.slug}`);
     } catch (ex) {
       setMsg(ex?.message || String(ex));
     } finally {
       setCreating(false);
     }
+  }
+
+  function goViewSlug() {
+    const s = slugify(viewSlug || "");
+    if (!s) return;
+    window.location.href = `${SITE_URL}${s}`;
   }
 
   if (!envOk) {
@@ -352,9 +432,25 @@ export default function Bootstrap() {
     );
   }
 
-  // Slug route: render public viewer (or captain can still sign in via the app itself if you expose it there)
-  if (getSlugFromPath()) {
-    if (publicLoading) {
+
+// Password recovery / set-password route (GitHub Pages friendly)
+if (isUpdatePw) {
+  return (
+    <UpdatePasswordScreen
+      supabase={client}
+      onDone={() => {
+        try {
+          window.location.replace(SITE_URL);
+        } catch {
+          window.location.href = SITE_URL;
+        }
+      }}
+    />
+  );
+}
+
+  if (slugInUrl) {
+    if (publicLoading || (session?.user?.id && publicRoleLoading)) {
       return (
         <CenterCard>
           <div className="text-sm text-neutral-600">Loading society…</div>
@@ -366,25 +462,23 @@ export default function Bootstrap() {
       return (
         <CenterCard>
           <div className="text-2xl font-black text-neutral-900">Society not found</div>
-          <div className="text-sm text-neutral-600 mt-2">
-            Ask your captain for the correct link.
+          <div className="text-sm text-neutral-600 mt-2">Ask your captain for the correct link.</div>
+          {msg ? <div className="mt-3"><InfoBox>{msg}</InfoBox></div> : null}
+          <div className="mt-4">
+            <button className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={() => window.location.replace(SITE_URL)}>
+              Go to portal
+            </button>
           </div>
-          {msg ? (
-            <div className="mt-3 text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
-              {msg}
-            </div>
-          ) : null}
         </CenterCard>
       );
     }
 
-    // Set globals for App.jsx
     setGlobals({
       client,
       societyId: publicSociety.id,
       societySlug: publicSociety.slug || "",
       societyName: publicSociety.name || "",
-      role: "viewer",
+      role: publicRole || "viewer",
     });
 
     return (
@@ -394,39 +488,43 @@ export default function Bootstrap() {
     );
   }
 
-  // Root route (/golf): captain portal
+  // Root portal
   if (!session?.user) {
     return (
       <CenterCard>
-        <div className="text-2xl font-black text-neutral-900">Captain portal</div>
-        <div className="text-sm text-neutral-600 mt-2">Sign in to create or manage a society.</div>
+        <div className="text-2xl font-black text-neutral-900">Golf portal</div>
+        <div className="text-sm text-neutral-600 mt-2">
+          Golfers: view your society. Captains: sign in to manage.
+        </div>
 
-        <form className="mt-4 space-y-3" onSubmit={sendMagicLink}>
+        <div className="mt-4 space-y-3">
           <div>
-            <label className="block text-xs font-bold text-neutral-700 mb-1">Email</label>
-            <input
-              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-            />
+            <div className="text-xs font-black tracking-widest uppercase text-neutral-400">View a society</div>
+            <div className="mt-2 flex gap-2">
+              <input className="flex-1 px-3 py-2 rounded-xl border border-neutral-200 bg-white" value={viewSlug} onChange={(e) => setViewSlug(e.target.value)} placeholder="e.g. den-society" />
+              <button className="rounded-xl bg-black text-white px-4 py-2.5 font-bold" onClick={goViewSlug}>View</button>
+            </div>
+            <div className="text-xs text-neutral-500 mt-1">Or use the full link a captain sends you.</div>
           </div>
 
-          {msg ? (
-            <div className="text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
-              {msg}
-            </div>
-          ) : null}
+          <div className="pt-2 border-t border-neutral-200" />
 
-          <button
-            className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60"
-            disabled={busy}
-          >
-            {busy ? "Sending…" : "Send magic link"}
-          </button>
-        </form>
+          <div>
+            <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Captain sign in</div>
+            <form className="mt-2 space-y-3" onSubmit={sendMagicLink}>
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 mb-1">Email</label>
+                <input className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+              </div>
+
+              {msg ? <InfoBox>{msg}</InfoBox> : null}
+
+              <button className="w-full rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60" disabled={busy}>
+                {busy ? "Sending…" : "Send magic link"}
+              </button>
+            </form>
+          </div>
+        </div>
       </CenterCard>
     );
   }
@@ -435,39 +533,32 @@ export default function Bootstrap() {
     return (
       <CenterCard>
         <div className="text-sm text-neutral-600">Loading…</div>
-        <button
-          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={signOut}
-        >
+        <button className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={signOut}>
           Sign out
         </button>
       </CenterCard>
     );
   }
 
-  const options = (societies || [])
-    .slice()
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const options = (societies || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
   if (pickerOpen) {
     return (
       <CenterCard>
-        <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Choose society</div>
+        <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Captain portal</div>
         <div className="text-lg font-black text-neutral-900 mt-1">{session.user.email}</div>
+
+        <div className="mt-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800">
+          Choose a society to open its admin page.
+        </div>
 
         <div className="mt-4 space-y-2">
           {options.map((s) => (
-            <button
-              key={s.id}
-              className="w-full text-left rounded-2xl border border-neutral-200 bg-white px-4 py-3 hover:bg-neutral-50"
-              onClick={() => {
-                const sid = String(s.id);
-                try {
-                  localStorage.setItem(LS_ACTIVE_SOCIETY, sid);
-                } catch {}
-                window.location.replace(`${SITE_URL}${s.slug || ""}`);
-              }}
-            >
+            <button key={s.id} className="w-full text-left rounded-2xl border border-neutral-200 bg-white px-4 py-3 hover:bg-neutral-50" onClick={() => {
+              const sid = String(s.id);
+              try { localStorage.setItem(LS_ACTIVE_SOCIETY, sid); } catch {}
+              window.location.replace(`${SITE_URL}${s.slug || ""}`);
+            }}>
               <div className="font-black text-neutral-900">{s.name || s.slug || s.id}</div>
               <div className="text-xs text-neutral-500">{s.slug ? `/${s.slug}` : s.id}</div>
             </button>
@@ -475,20 +566,10 @@ export default function Bootstrap() {
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-            onClick={() => {
-              setMsg("");
-              setPickerOpen(false);
-              setCreateOpen(true);
-            }}
-          >
+          <button className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={() => { setMsg(""); setPickerOpen(false); setCreateOpen(true); }}>
             Create society
           </button>
-          <button
-            className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-            onClick={signOut}
-          >
+          <button className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={signOut}>
             Sign out
           </button>
         </div>
@@ -501,28 +582,18 @@ export default function Bootstrap() {
       <CenterCard>
         <div className="text-2xl font-black text-neutral-900">Create society</div>
         <div className="text-sm text-neutral-600 mt-2">
-          This creates a public viewer link for golfers and makes you the captain.
+          Creates a public viewer link for golfers and makes you the captain.
         </div>
 
         <form className="mt-4 space-y-3" onSubmit={createSociety}>
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">Society name</label>
-            <input
-              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
-              value={societyName}
-              onChange={(e) => setSocietyName(e.target.value)}
-              placeholder="e.g. Dennis The Menace"
-            />
+            <input className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white" value={societyName} onChange={(e) => setSocietyName(e.target.value)} placeholder="e.g. Dennis The Menace" />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">Slug</label>
-            <input
-              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
-              value={societySlug}
-              onChange={(e) => setSocietySlug(e.target.value)}
-              placeholder="e.g. dennis-the-menace"
-            />
+            <input className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white" value={societySlug} onChange={(e) => setSocietySlug(e.target.value)} placeholder="e.g. dennis-the-menace" />
             <div className="text-xs text-neutral-500 mt-1">
               Golfers will use: <span className="font-mono">{SITE_URL}</span><span className="font-mono">{societySlug || "your-slug"}</span>
             </div>
@@ -530,42 +601,20 @@ export default function Bootstrap() {
 
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">First season</label>
-            <input
-              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white"
-              value={seasonLabel}
-              onChange={(e) => setSeasonLabel(e.target.value)}
-              placeholder="e.g. 2026"
-            />
+            <input className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white" value={seasonLabel} onChange={(e) => setSeasonLabel(e.target.value)} placeholder="e.g. 2026" />
           </div>
 
-          {msg ? (
-            <div className="text-sm rounded-xl px-3 py-2 border border-neutral-200 bg-neutral-50">
-              {msg}
-            </div>
-          ) : null}
+          {msg ? <InfoBox>{msg}</InfoBox> : null}
 
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-              onClick={() => {
-                setMsg("");
-                if (options.length > 0) {
-                  setCreateOpen(false);
-                  setPickerOpen(true);
-                } else {
-                  signOut();
-                }
-              }}
-              disabled={creating}
-            >
+            <button type="button" className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={() => {
+              setMsg("");
+              if (options.length > 0) { setCreateOpen(false); setPickerOpen(true); }
+              else { signOut(); }
+            }} disabled={creating}>
               Back
             </button>
-            <button
-              type="submit"
-              className="rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60"
-              disabled={creating}
-            >
+            <button type="submit" className="rounded-xl bg-black text-white px-4 py-2.5 font-bold disabled:opacity-60" disabled={creating}>
               {creating ? "Creating…" : "Create"}
             </button>
           </div>
@@ -574,28 +623,20 @@ export default function Bootstrap() {
     );
   }
 
-  // If we reach here with societies already loaded, we normally redirect into a society.
-  // Fallback: show a simple portal page.
   return (
     <CenterCard>
       <div className="text-2xl font-black text-neutral-900">Captain portal</div>
       <div className="text-sm text-neutral-600 mt-2">{session.user.email}</div>
+      {msg ? <div className="mt-3"><InfoBox>{msg}</InfoBox></div> : null}
 
       <div className="mt-4 space-y-2">
-        <button
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={() => {
-            setMsg("");
-            setCreateOpen(true);
-          }}
-        >
+        <button className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={() => { setMsg(""); setCreateOpen(true); }}>
           Create society
         </button>
-
-        <button
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold"
-          onClick={signOut}
-        >
+        <button className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={() => { setMsg(""); setPickerOpen(true); }}>
+          Choose society
+        </button>
+        <button className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 font-bold" onClick={signOut}>
           Sign out
         </button>
       </div>
