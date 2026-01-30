@@ -3446,24 +3446,6 @@ function AdminView({
     </div>
   </form>
 ) : null}
-
-            <div className="flex items-center justify-between gap-2 mt-2">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setActionStatus("");
-                  setCreateSeasonOpen(false);
-                }}
-              >
-                Back
-              </button>
-              <button className="btn-primary" disabled={creatingSeason}>
-                {creatingSeason ? "Creating…" : "Create season"}
-              </button>
-            </div>
-          </form>
-        ) : null}
       </div>
 
       {/* Create society */}
