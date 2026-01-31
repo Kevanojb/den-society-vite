@@ -4934,7 +4934,9 @@ for (let i = 0; i < holes; i++) {
               }
 
               const seasonKey = (seasonYear && String(seasonYear).toLowerCase() !== "all") ? String(seasonYear) : "All";
-              const cacheKey = `${String(SOCIETY_ID || "")}|${String(COMPETITION || "")}|${seasonKey}`;
+              const societyKey = (season && (season.society_id || season.societyId)) || "";
+              const competitionKey = (season && (season.competition || season.competition_name || season.competitionName)) || "";
+              const cacheKey = `${String(societyKey)}|${String(competitionKey)}|${seasonKey}`;
 
               try { window.__leagueGrossCache = window.__leagueGrossCache || {}; } catch (e) {}
               try {
