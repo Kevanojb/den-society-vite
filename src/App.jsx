@@ -4906,19 +4906,79 @@ for (let i = 0; i < holes; i++) {
       }
 
       function Standings({ season, setView, seasonsDef, seasonYear, setSeasonYear }) {
-        const list = Object.values(season).filter((r) => !isTeamLike(r.name)).sort((a, b) => b.totalPoints - a.totalPoints || a.name.localeCompare(b.name));
+        // League standings can be shown as Stableford (default) or Gross.
+        // Gross totals are optional — if a player doesn't have gross season totals
+        // (older seasons / not yet scanned), we'll show "—".
+        const [leagueScoreMode, setLeagueScoreMode] = React.useState("stableford"); // "stableford" | "gross"
+
+        const _grossTotal = (r) => {
+          // Support a few possible field names so this works with older/newer schemas.
+          const v = Number(
+            r?.totalGross ?? r?.total_gross ?? r?.totalStrokes ?? r?.total_strokes ?? r?.grossTotal ?? r?.gross_total
+          );
+          return Number.isFinite(v) ? v : NaN;
+        };
+
+        const list = Object.values(season)
+          .filter((r) => !isTeamLike(r.name))
+          .sort((a, b) => {
+            if (leagueScoreMode === "gross") {
+              const ag = _grossTotal(a);
+              const bg = _grossTotal(b);
+              // If one is missing gross, push it to the bottom.
+              if (!Number.isFinite(ag) && !Number.isFinite(bg)) return a.name.localeCompare(b.name);
+              if (!Number.isFinite(ag)) return 1;
+              if (!Number.isFinite(bg)) return -1;
+              return (ag - bg) || a.name.localeCompare(b.name);
+            }
+            return (b.totalPoints - a.totalPoints) || a.name.localeCompare(b.name);
+          });
         return (
           <section className="content-card p-3 md:p-5 hm-stage">
             <SoloNav setView={setView} right={<SeasonPicker seasonsDef={seasonsDef} seasonYear={seasonYear} setSeasonYear={setSeasonYear} leagueTitle={LEAGUE_TITLE} />} />
-            <h2 className="section-title mb-3">League</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h2 className="section-title mb-0">League</h2>
+
+              {/* Scoring mode selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black tracking-widest uppercase text-neutral-500">Mode</span>
+                <select
+                  className="rounded-xl border border-squab-200 px-2 py-1 text-xs bg-white"
+                  value={leagueScoreMode}
+                  onChange={(e) => setLeagueScoreMode(e.target.value)}
+                >
+                  <option value="stableford">Stableford (points)</option>
+                  <option value="gross">Gross (strokes)</option>
+                </select>
+              </div>
+            </div>
             <div className="overflow-auto table-wrap">
               <table className="min-w-full text-sm table-zebra">
-                <thead><tr className="border-b border-squab-200 text-left"><th>Rank</th><th>Name</th><th>Events</th><th>Total</th><th>Best Event</th><th>Best Hole</th><th>Eclectic</th></tr></thead>
+                <thead>
+                  <tr className="border-b border-squab-200 text-left">
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Events</th>
+                    <th>{leagueScoreMode === "gross" ? "Gross Total" : "Total"}</th>
+                    <th>Best Event</th>
+                    <th>Best Hole</th>
+                    <th>Eclectic</th>
+                  </tr>
+                </thead>
                 <tbody className="[&_tr:nth-child(even)]:bg-squab-50/50">
                   {list.map((r, i) => (
                     <tr key={r.name} className={"border-b border-squab-200 " + (i === 0 ? "bg-emerald-50" : i < 3 ? "bg-squab-50" : "")}>
                       <td className="font-semibold">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</td>
-                      <td>{r.name}</td><td>{r.events}</td><td>{r.totalPoints}</td><td>{r.bestEventPoints}</td><td>{r.bestHolePoints}</td><td>{r.eclecticTotal}</td>
+                      <td>{r.name}</td>
+                      <td>{r.events}</td>
+                      <td>
+                        {leagueScoreMode === "gross"
+                          ? (Number.isFinite(_grossTotal(r)) ? _grossTotal(r) : "—")
+                          : r.totalPoints}
+                      </td>
+                      <td>{r.bestEventPoints}</td>
+                      <td>{r.bestHolePoints}</td>
+                      <td>{r.eclecticTotal}</td>
                     </tr>
                   ))}
                   {list.length === 0 && <tr><td colSpan="7" className="py-3 text-neutral-600">No season data yet.</td></tr>}
