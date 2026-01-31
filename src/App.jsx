@@ -3208,7 +3208,6 @@ function AdminView({
         society_name: name,
         society_slug: slug,
         first_season_name: firstSeason || null,
-        competition: (societyCompetition || "season").trim(),
       });
       if (error) throw error;
 
