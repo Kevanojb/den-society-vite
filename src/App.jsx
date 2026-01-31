@@ -12917,6 +12917,11 @@ function App(props) {
 const [tenantTick, setTenantTick] = useState(0);
 
 
+  // Supabase client (provided globally elsewhere in the app)
+  const client = (typeof window !== "undefined" && window.__supabase_client__) ? window.__supabase_client__ : null;
+
+
+
 
 // CSV import metadata (persist event_date to Supabase)
 const [loadedEventDateMs, setLoadedEventDateMs] = useState(null);
