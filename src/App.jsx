@@ -3119,6 +3119,20 @@ function AdminView({
       return;
     }
 
+    // Creating seasons is protected by RLS (requires an authenticated captain).
+    // If the user isn't signed in with Supabase Auth (e.g. they haven't completed
+    // the magic-link or email+password sign-in), the insert will fail with 403/42501.
+    try {
+      const { data: sessData } = await supabase.auth.getSession();
+      if (!sessData?.session?.user?.id) {
+        setActionStatus("You must Sign in as Captain before creating a season.");
+        return;
+      }
+    } catch {
+      setActionStatus("You must Sign in as Captain before creating a season.");
+      return;
+    }
+
     const label = (seasonLabel || "").trim();
     if (!label) {
       setActionStatus("Enter a season name.");
@@ -3469,20 +3483,26 @@ function AdminView({
         </div>
 
         {createSocietyOpen ? (
-          <form className="mt-4 grid gap-2" onSubmit={createSociety}>
+          <form
+            className="mt-4 grid gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateSociety();
+            }}
+          >
             <label className="text-xs font-black text-neutral-600">Society name</label>
             <input
               className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-              value={newSocietyName}
-              onChange={(e) => setNewSocietyName(e.target.value)}
+              value={societyName}
+              onChange={(e) => setSocietyName(e.target.value)}
               placeholder="e.g. Dennis The Menace"
             />
 
             <label className="text-xs font-black text-neutral-600 mt-2">Slug (optional)</label>
             <input
               className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-              value={newSocietySlug}
-              onChange={(e) => setNewSocietySlug(e.target.value)}
+              value={societySlug}
+              onChange={(e) => setSocietySlug(e.target.value)}
               placeholder="e.g. dennis-the-menace"
             />
             <div className="text-xs text-neutral-500">
@@ -3492,16 +3512,16 @@ function AdminView({
             <label className="text-xs font-black text-neutral-600 mt-2">First season label</label>
             <input
               className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-              value={newSocietySeasonLabel}
-              onChange={(e) => setNewSocietySeasonLabel(e.target.value)}
+              value={societyFirstSeason}
+              onChange={(e) => setSocietyFirstSeason(e.target.value)}
               placeholder="e.g. Holiday"
             />
 
             <label className="text-xs font-black text-neutral-600 mt-2">Competition type</label>
             <select
               className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-              value={newSocietyCompetition}
-              onChange={(e) => setNewSocietyCompetition(e.target.value)}
+              value={societyCompetition}
+              onChange={(e) => setSocietyCompetition(e.target.value)}
             >
               <option value="season">season</option>
               <option value="winter">winter</option>
