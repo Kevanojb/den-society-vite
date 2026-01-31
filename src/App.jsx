@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// Supabase client alias used by module-level helpers.
+// Some helpers reference `client` directly; this ensures it exists at runtime.
+// The real instance is attached to window.__supabase_client__ elsewhere in the app.
+var client = (typeof window !== "undefined" && window.__supabase_client__) || null;
+
+
 const SUPER_ADMIN_EMAILS = ["kevanojb@icloud.com"]; // global admin(s)
 
 
