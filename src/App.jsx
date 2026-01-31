@@ -3102,6 +3102,9 @@ function AdminView({
   const [societyName, setSocietyName] = React.useState("");
   const [societySlug, setSocietySlug] = React.useState("");
   const [societyFirstSeason, setSocietyFirstSeason] = React.useState("");
+  const [captainEmail, setCaptainEmail] = React.useState("");
+  const [captainBusy, setCaptainBusy] = React.useState(false);
+  const [captainStatus, setCaptainStatus] = React.useState("");
   const [societyCompetition, setSocietyCompetition] = React.useState("season");
   const [societyBusy, setSocietyBusy] = React.useState(false);
 
@@ -3239,6 +3242,35 @@ function AdminView({
       setSocietyBusy(false);
     }
   }
+  async function handleAddCaptainEmail(e) {
+    e?.preventDefault?.();
+    setCaptainStatus("");
+    const email = (captainEmail || "").trim().toLowerCase();
+    if (!email) return;
+
+    const supabase = window.__supabase_client__;
+    if (!supabase) {
+      setCaptainStatus("Supabase client missing.");
+      return;
+    }
+
+    setCaptainBusy(true);
+    try {
+      const { error } = await supabase.rpc("add_captain_email", {
+        p_society_id: activeSocietyId,
+        p_email: email,
+      });
+      if (error) throw error;
+      setCaptainStatus("Captain invite recorded. They will become captain on first login.");
+      setCaptainEmail("");
+    } catch (err) {
+      setCaptainStatus("Error: " + (err?.message || err));
+    } finally {
+      setCaptainBusy(false);
+    }
+  }
+
+
 
   return (
     <section className="content-card p-4 md:p-6 hm-stage">
@@ -3554,6 +3586,41 @@ function AdminView({
           </form>
         ) : null}
       </div>
+      {/* Captain access (app admin only) */}
+      {isSuperAdmin ? (
+        <div className="mt-4 glass-card p-4 border border-neutral-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-black tracking-widest uppercase text-neutral-400">Captains</div>
+              <div className="mt-1 text-sm font-extrabold text-neutral-900">Add captain by email</div>
+              <div className="text-xs text-neutral-500">
+                Add an email here. When they sign in via magic link, they’ll automatically become captain.
+              </div>
+            </div>
+          </div>
+
+          <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={handleAddCaptainEmail}>
+            <label className="flex-1 min-w-[240px]">
+              <div className="text-xs font-bold text-neutral-500 mb-1">Captain email</div>
+              <input
+                className="input w-full"
+                type="email"
+                value={captainEmail}
+                onChange={(e) => setCaptainEmail(e.target.value)}
+                placeholder="captain@domain.com"
+              />
+            </label>
+            <button type="submit" className="btn-primary" disabled={captainBusy || !captainEmail.trim()}>
+              {captainBusy ? "Adding…" : "Add captain"}
+            </button>
+          </form>
+
+          {captainStatus ? (
+            <div className="mt-2 text-xs font-semibold text-neutral-600">{captainStatus}</div>
+          ) : null}
+        </div>
+      ) : null}
+
 
       {/* Player link */}
       <div className="mt-4 glass-card p-4 border border-neutral-200">
@@ -12802,6 +12869,7 @@ const COMPETITION = IS_WINTER_LEAGUE ? "winter" : "season";
         const [loginOpen, setLoginOpen] = useState(false);
         const [loginBusy, setLoginBusy] = useState(false);
 const [user, setUser] = useState(null);
+        const claimDoneRef = useRef(false);
 
         
 
@@ -14072,11 +14140,26 @@ setSeasonRounds(rounds);
               if (cancelled) return;
 
               setClient(c);
-              c.auth.getSession().then(({ data: { session } }) => {
+              const claimMemberships = async (session) => {
+                const u = session?.user ?? null;
+                if (!u) { claimDoneRef.current = false; return; }
+                if (claimDoneRef.current) return;
+                claimDoneRef.current = true;
+                try {
+                  await c.rpc("claim_memberships_from_email");
+                } catch (e) {
+                  // Non-fatal: user may not be allowlisted.
+                }
+              };
+
+              c.auth.getSession().then(async ({ data: { session } }) => {
                 setUser(session?.user ?? null);
+                await claimMemberships(session);
               });
-              c.auth.onAuthStateChange((_event, session) => {
+
+              c.auth.onAuthStateChange(async (_event, session) => {
                 setUser(session?.user ?? null);
+                await claimMemberships(session);
               });
 
 
