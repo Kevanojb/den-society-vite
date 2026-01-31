@@ -725,73 +725,79 @@ function isFuzzyMatch(a, b) {
       }
 
       function LoginModal({ open, onClose, onSubmit, busy }) {
-  const [email, setEmail] = useState("");
-  const [err, setErr] = useState("");
-  const [sent, setSent] = useState("");
+        const [email, setEmail] = useState("");
+        const [password, setPassword] = useState("");
+        const [err, setErr] = useState("");
 
-  useEffect(() => {
-    if (!open) { setEmail(""); setErr(""); setSent(""); }
-  }, [open]);
+        useEffect(() => {
+          if (!open) { setEmail(""); setPassword(""); setErr(""); }
+        }, [open]);
 
-  if (!open) return null;
+        if (!open) return null;
 
-  const submit = async (e) => {
-    e.preventDefault();
-    setErr("");
-    setSent("");
-    const em = (email || "").trim();
-    if (!em) { setErr("Enter your email."); return; }
-    try {
-      await onSubmit(em);
-      setSent("Check your email for the magic link.");
-    } catch (ex) {
-      setErr(ex?.message || String(ex));
-    }
-  };
+        const submit = async (e) => {
+          e.preventDefault();
+          setErr("");
+          const em = (email || "").trim();
+          if (!em || !password) { setErr("Enter email + password."); return; }
+          try {
+            await onSubmit(em, password);
+          } catch (ex) {
+            setErr(ex?.message || String(ex));
+          }
+        };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-md glass-card p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-lg font-extrabold text-squab-900">Captain sign in</div>
-            <div className="text-xs text-neutral-500">We’ll email you a magic link (no password).</div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+            <div className="relative w-full max-w-md glass-card p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-extrabold text-squab-900">Admin sign in</div>
+                  <div className="text-xs text-neutral-500">Use your Supabase account.</div>
+                </div>
+                <button className="btn-secondary" type="button" onClick={onClose}>✕</button>
+              </div>
+
+              <form className="mt-4 space-y-3" onSubmit={submit}>
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">Email</label>
+                  <input
+                    className="w-full px-3 py-2 rounded-xl border border-squab-200 bg-white/90 focus:outline-none focus:ring-2 focus:ring-squab-300"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e)=>setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">Password</label>
+                  <input
+                    className="w-full px-3 py-2 rounded-xl border border-squab-200 bg-white/90 focus:outline-none focus:ring-2 focus:ring-squab-300"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e)=>setPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                {err ? (
+                  <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{err}</div>
+                ) : null}
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+                  <button type="submit" className="btn-primary" disabled={busy}>
+                    {busy ? "Signing in..." : "Sign in"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-          <button className="btn-secondary" type="button" onClick={onClose}>✕</button>
-        </div>
-
-        <form className="mt-4 space-y-3" onSubmit={submit}>
-          <div>
-            <label className="block text-xs font-bold text-neutral-700 mb-1">Email</label>
-            <input
-              className="w-full px-3 py-2 rounded-xl border border-squab-200 bg-white/90 focus:outline-none focus:ring-2 focus:ring-squab-300"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e)=>setEmail(e.target.value)}
-              placeholder="name@example.com"
-            />
-          </div>
-
-          {sent ? (
-            <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">{sent}</div>
-          ) : null}
-
-          {err ? (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{err}</div>
-          ) : null}
-
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? "Sending..." : "Send magic link"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+        );
+      }
 
 function AdminPasswordModal({ open, onClose, onSubmit }) {
   const [pw, setPw] = React.useState("");
@@ -3202,7 +3208,8 @@ function AdminView({
         society_name: name,
         society_slug: slug,
         first_season_name: firstSeason || null,
-});
+        competition: (societyCompetition || "season").trim(),
+      });
       if (error) throw error;
 
       const newSocId = String(data || "");
@@ -12853,8 +12860,9 @@ const [adminPwOpen, setAdminPwOpen] = useState(false);
 const [adminPwOk, setAdminPwOk] = useState(() => { try { return localStorage.getItem(ADMIN_PW_OK_LS_KEY) === "1"; } catch { return false; } });
 const requestPlayersAdmin = React.useCallback(() => {
   if (!user) { toast("Sign in first"); return; }
-  setPlayersAdminOpen(true);
-}, [user]);
+  if (adminPwOk) setPlayersAdminOpen(true);
+  else setAdminPwOpen(true);
+}, [user, adminPwOk]);
 
 const handleAdminPassword = React.useCallback((pw) => {
   const ok = String(pw || "") === ADMIN_PASSWORD;
@@ -14095,21 +14103,14 @@ setSeasonRounds(rounds);
           fetchSeason(client);
         }, [client, leagueSeasonYear]);
 
-        async function handleLogin(email) {
-  // If called without email (e.g., button click), open modal
-  if (!email) { setLoginOpen(true); return; }
-  const em = String(email || "").trim();
-  if (!em) { setLoginOpen(true); return; }
-
+        async function handleLogin(email, password) {
+  // If called without creds (e.g., button click), open modal
+  if (!email || !password) { setLoginOpen(true); return; }
   setLoginBusy(true);
   try {
-    const emailRedirectTo = `${window.location.origin}${(import.meta?.env?.BASE_URL || "/").replace(/\/+$/, "/")}`;
-    const { error } = await client.auth.signInWithOtp({
-      email: em,
-      options: { emailRedirectTo },
-    });
+    const { error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    toast("Magic link sent");
+    toast("Logged in");
     setLoginOpen(false);
   } finally {
     setLoginBusy(false);
@@ -15132,6 +15133,7 @@ if (res.error) toast("Error: " + res.error.message);
             <div className="app-shell space-y-4 pt-1">
               <Header leagueHeaderTitle={LEAGUE_HEADER_TITLE} eventName={eventName} statusMsg={statusMsg} courseName={courseName} view={view} setView={setView} />
               <LoginModal open={loginOpen} busy={loginBusy} onClose={() => setLoginOpen(false)} onSubmit={handleLogin} />
+              <AdminPasswordModal open={adminPwOpen} onClose={() => setAdminPwOpen(false)} onSubmit={handleAdminPassword} />
               <PlayerVisibilitySheet open={playersAdminOpen} onClose={() => setPlayersAdminOpen(false)} isAdmin={!!user} players={adminPlayerRoster} hiddenKeys={hiddenPlayerKeys} onSave={savePlayerVisibility} />
               <BottomStatusBar statusMsg={statusMsg} courseName={courseName} />
               <button
