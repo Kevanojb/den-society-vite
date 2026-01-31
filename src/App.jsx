@@ -4911,8 +4911,60 @@ for (let i = 0; i < holes; i++) {
         // (older seasons / not yet scanned), we'll show "—".
         const [leagueScoreMode, setLeagueScoreMode] = React.useState("stableford"); // "stableford" | "gross"
 
+        const grossTotalsByName = React.useMemo(() => {
+          const map = Object.create(null);
+
+          const wantSeason = (seasonYear && String(seasonYear).toLowerCase() !== "all") ? String(seasonYear) : null;
+
+          const getSeasonId = (round) => {
+            const s = (round && (round.seasonId ?? round.season_id)) ??
+              (round && round.parsed && (round.parsed.seasonId ?? round.parsed.season_id)) ??
+              (round && round.meta && (round.meta.seasonId ?? round.meta.season_id));
+            return (s === undefined || s === null) ? "" : String(s);
+          };
+
+          const getPlayerName = (round) =>
+            (round && (round.name ?? round.playerName ?? round.player ?? round.player_name)) || "";
+
+          const sumGross = (round) => {
+            const arr = (round && (round.imputedGrossPerHole ?? round.grossPerHole ?? round.gross_per_hole ?? round.grossHoles)) || null;
+            if (Array.isArray(arr) && arr.length) {
+              let s = 0;
+              for (const v of arr) {
+                const n = Number(v);
+                if (Number.isFinite(n)) s += n;
+              }
+              return s > 0 ? s : NaN;
+            }
+            const direct = Number(round?.grossTotal ?? round?.gross_total ?? round?.totalGross ?? round?.total_gross ?? round?.strokes ?? round?.totalStrokes ?? round?.total_strokes);
+            return Number.isFinite(direct) ? direct : NaN;
+          };
+
+          for (const r of (seasonRounds || [])) {
+            if (wantSeason) {
+              const sid = getSeasonId(r);
+              if (sid && sid !== wantSeason) continue;
+              // If round has no season id, we can't safely include it for a specific season selection.
+              if (!sid) continue;
+            }
+            const name = String(getPlayerName(r) || "").trim();
+            if (!name || isTeamLike(name)) continue;
+
+            const g = sumGross(r);
+            if (!Number.isFinite(g)) continue;
+
+            map[name] = (Number(map[name]) || 0) + g;
+          }
+
+          return map;
+        }, [seasonRounds, seasonYear]);
+
         const _grossTotal = (r) => {
-          // Support a few possible field names so this works with older/newer schemas.
+          const name = String(r?.name || "").trim();
+          const fromRounds = Number(grossTotalsByName[name]);
+          if (Number.isFinite(fromRounds)) return fromRounds;
+
+          // Fallback: Support a few possible field names on the season row itself.
           const v = Number(
             r?.totalGross ?? r?.total_gross ?? r?.totalStrokes ?? r?.total_strokes ?? r?.grossTotal ?? r?.gross_total
           );
